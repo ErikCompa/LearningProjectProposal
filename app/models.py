@@ -5,6 +5,7 @@ from uuid import uuid4
 class Transcript(BaseModel):
     uid: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the transcript")
     text: str = Field(..., description="Transcribed text from the audio")
+    confidence: Optional[float] = Field(None, description="Confidence score of the transcription")
 
 class Mood(BaseModel):
     uid: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the mood analysis")

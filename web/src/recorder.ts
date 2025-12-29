@@ -42,8 +42,8 @@ export default class Recorder {
           
           // Upload the audio
           try {
-            const result = await this.uploadSpeech(audioBlob);
-            console.log('Transcription result:', result);
+            const transcript = await this.uploadSpeech(audioBlob);
+            console.log('Transcription result:', transcript);
           } catch (err) {
             console.error('Failed to upload audio:', err);
           }
