@@ -75,9 +75,13 @@ async def transcribe(file: UploadFile = File(...)):
 @app.post("/v1/analyze_mood/")
 async def analyze(transcript: Transcript):
     propmt = "Analyze the mood of the following transcript:"
+
+    # remove confidence to force gemini to gen one
+    transcript_data = transcript.model_dump(exclude={'confidence'})
+
     response = gemini_client.models.generate_content(
         model = "gemini-2.5-flash",
-        contents=[propmt, transcript.model_dump_json(indent=2)],
+        contents=[propmt, str(transcript_data)],
         config={
             "response_mime_type": "application/json",
             "response_json_schema": Mood.model_json_schema(),
@@ -85,5 +89,4 @@ async def analyze(transcript: Transcript):
     )
 
     mood = Mood.model_validate_json(response.text)
-
     return mood
