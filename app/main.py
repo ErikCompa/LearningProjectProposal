@@ -77,7 +77,7 @@ async def analyze(transcript: Transcript):
     if not transcript.text:
         raise HTTPException(status_code=400, detail="Transcript text is empty.")
 
-    propmt = "Analyze the mood of the following transcript:"
+    propmt = "Analyze the following transcript and determine the overall mood of the user. Give a confidence score between 0.0 and 1.0 and evidence with explanations."
 
     # remove confidence to force gemini to gen one
     transcript_data = transcript.model_dump(exclude={'confidence'})
