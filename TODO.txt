@@ -1,2 +1,0 @@
-add tests with pytest
-add simple cicd to build/run tests/push to docker container
