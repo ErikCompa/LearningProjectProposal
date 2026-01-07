@@ -1,7 +1,7 @@
 # frontend
 FROM node:25.2.1-alpine3.21 AS frontend
 WORKDIR /web
-COPY package*.json ./
+COPY web/package*.json ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build
