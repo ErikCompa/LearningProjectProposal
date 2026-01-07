@@ -6,6 +6,8 @@ from google.cloud import speech_v1 as speech
 from google import genai
 from google.auth import default
 from google.cloud import firestore
+import os
+from pathlib import Path
 
 # clients startup
 credentials, project = default()
@@ -25,8 +27,11 @@ db = firestore.Client()
 # CORS fix
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -134,4 +139,6 @@ async def get_from_firestore():
 
 # Mount static files
 # https://fastapi.tiangolo.com/tutorial/static-files/
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")

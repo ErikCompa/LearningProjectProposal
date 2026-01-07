@@ -55,24 +55,44 @@ Infrastructure:
 
 - GitHub Actions
 
+- Google Artifact Registry
+
 ---
 
 ## Development
 
-### Run the backend locally:
+### Development workflow (separate frontend/backend):
+
+**Terminal 1 - Frontend dev server:**
+```bash
+cd web/
+npm install
+npm run dev
 ```
+
+**Terminal 2 - Backend API (from project root):**
+```bash
 python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-### Run the frontend locally:
+Frontend runs at `http://localhost:5173`, backend at `http://localhost:8000`. CORS is configured to allow cross-origin requests between them.
+
+### Local testing (production build):
+
+Test the full application with static files served by FastAPI:
+
+```bash
+cd web/
+npm run build
+cp -r dist ../app/static
+cd ..
+uvicorn app.main:app
 ```
-cd web
-npm install
-npm run dev
-```
+
+Visit `http://localhost:8000` to access the complete application.
 
 ### GCP setup
 
