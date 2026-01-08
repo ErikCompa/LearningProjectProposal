@@ -23,6 +23,7 @@ speech_client = speech.SpeechClient()
 
 db = firestore.Client()
 
+
 # CORS fix
 app.add_middleware(
     CORSMiddleware,
