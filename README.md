@@ -20,6 +20,7 @@ Minimal web application that records microphone audio, transcribes speech using 
 The mood analysis step uses a large language model to classify the overall emotional tone of the transcript.
 
 The model returns structured JSON that includes:
+
 - a mood label
 - a confidence score between 0 and 1
 - optional evidence phrases extracted from the transcript
@@ -27,6 +28,7 @@ The model returns structured JSON that includes:
 ---
 
 ## Technology overview
+
 Backend:
 
 - Python
@@ -57,6 +59,10 @@ Infrastructure:
 
 - Google Artifact Registry
 
+- Pytest
+
+- Ruff
+
 ---
 
 ## Development
@@ -64,6 +70,7 @@ Infrastructure:
 ### Development workflow (separate frontend/backend):
 
 **Terminal 1 - Frontend dev server:**
+
 ```bash
 cd web/
 npm install
@@ -71,6 +78,7 @@ npm run dev
 ```
 
 **Terminal 2 - Backend API (from project root):**
+
 ```bash
 python3 -m venv env
 source env/bin/activate

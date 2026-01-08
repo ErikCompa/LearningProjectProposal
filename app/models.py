@@ -1,6 +1,7 @@
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
 from uuid import uuid4
+
+from pydantic import BaseModel, Field, field_validator
 
 
 # model for output from google stt api
@@ -9,7 +10,7 @@ class Transcript(BaseModel):
         default_factory=lambda: str(uuid4()),
         description="Unique identifier for the transcript",
     )
-    text: str = Field(..., description="Transcribed text from the audio")
+    text: str = Field(..., min_length=1, description="Transcribed text from the audio")
     confidence: Optional[float] = Field(
         None, description="Confidence score of the transcription"
     )
@@ -27,7 +28,9 @@ class Mood(BaseModel):
         default_factory=lambda: str(uuid4()),
         description="Unique identifier for the mood analysis",
     )
-    mood: str = Field(..., description="Detected mood label from the audio")
+    mood: str = Field(
+        ..., min_length=1, description="Detected mood label from the audio"
+    )
     confidence: float = Field(..., description="Confidence score of the mood detection")
     evidence: Optional[list[str]] = Field(
         ..., description="Evidence supporting the mood detection"

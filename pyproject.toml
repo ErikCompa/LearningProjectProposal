@@ -1,2 +1,5 @@
 [tool.ruff]
 lint.extend-select = ["PTH", "FAST"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
