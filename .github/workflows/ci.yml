@@ -29,6 +29,8 @@ jobs:
         
         - name: run tests
           run: |
+            ruff check .
+            ruff format --check .
             pytest
     
     # build frontend job

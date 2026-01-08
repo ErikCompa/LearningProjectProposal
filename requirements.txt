@@ -6,3 +6,4 @@ google-cloud-speech
 google-genai
 google-cloud-firestore
 pytest
+ruff

@@ -7,3 +7,4 @@ env/
 .DS_Store
 .pytest_cache/
 static/
+.ruff_cache
