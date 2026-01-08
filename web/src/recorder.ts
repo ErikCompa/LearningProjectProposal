@@ -1,20 +1,5 @@
 import RecordList from './recordList.ts';
 
-// input for stt for sending to gemini
-interface Transcript {
-  uid: string;
-  text: string;
-  confidence?: number;
-}
-
-// inpiy from gemini
-interface Mood {
-  uid: string;
-  mood: string;
-  confidence: number;
-  evidence?: string;
-}
-
 // firestore collection structure
 interface FirestoreRecord {
   uid: string;
@@ -85,52 +70,48 @@ export default class Recorder {
       });
   }
 
+  // stop recording
+  private stop(): void {
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      this.mediaRecorder.stop();
+      this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      this.mediaRecorder = null;
+    }
+    this.isRecording = false;
+    this.updateUI();
+    console.log('Recording stopped');
+  }
+
+  // process audio after recording stops
   private async processAudio() {
     const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' }); //transform blob into webm format
 
-
-    // Upload the audio
-    let transcript: Transcript = { uid: '', text: '' };
+    // Call combined endpoint
     try {
-      transcript = await this.uploadSpeech(audioBlob);
-
-      if (!transcript.text || transcript.text === "") {
-        throw new Error('Incomplete transcript data received from STT service');
+      if (!audioBlob || audioBlob.size === 0) {
+        throw new Error('Invalid audio blob for transcription');
       }
 
-      console.log('Transcription result:', transcript);
+      const form = new FormData();
+
+      form.append('file', audioBlob, 'speech.webm');
+
+      const res = await fetch(
+        'http://localhost:8000/v1/process_audio/',
+        {
+          method: 'POST',
+          body: form,
+        }
+      );
+
+      if (!res.status || res.status !== 200) {
+        const text = await res.text();
+        throw new Error(`Processing audio failed: ${text}`);
+      }
+
     } catch (err) {
-      console.error('Failed to upload audio:', err);
-    }
-
-    // transcript to gemini
-    let geminiResponse: Mood = { uid: '', mood: '', confidence: 0 };
-    try {
-      geminiResponse = await this.uploadTranscript(transcript);
-
-      if (!geminiResponse.mood || geminiResponse.mood === "") {
-        throw new Error('Incomplete mood data received from Gemini service');
-      }
-
-      console.log('Gemini response:', geminiResponse);
-    } catch (err) {
-      console.error('Failed to get response from Gemini:', err);
-    }
-
-    // upload to firestore
-    try {
-      if (!transcript.uid || !geminiResponse.uid || !transcript.text || !geminiResponse.mood) {
-        throw new Error('Incomplete data for Firestore upload');
-      }
-      let response = await this.uploadToFirestore(transcript, geminiResponse);
-
-      if (response.success !== true || !response.uid) {
-        throw new Error('Invalid data received from Firestore upload');
-      }
-
-      console.log('Uploaded response to Firestore:', response);
-    } catch (err) {
-      console.error('Failed to upload response to Firestore:', err);
+      console.error('Error processing audio:', err);
+      return;
     }
 
     // retrieve from firestore
@@ -142,18 +123,6 @@ export default class Recorder {
     } catch (err) {
       console.error('Failed to retrieve records from Firestore:', err);
     }
-  }
-
-  // stop recording
-  private stop(): void {
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
-      this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
-      this.mediaRecorder = null;
-    }
-    this.isRecording = false;
-    this.updateUI();
-    console.log('Recording stopped');
   }
 
   // get records from firestore
@@ -172,91 +141,7 @@ export default class Recorder {
 
     return await response.json();
   }
-
-  // upload combined response to firestore
-  private async uploadToFirestore(transcript: Transcript, mood: Mood) {
-    if (!transcript || !mood) {
-      throw new Error('Invalid data for Firestore upload');
-    }
-
-    if (!transcript.text || transcript.text === "") {
-      throw new Error('Incomplete transcript data for Firestore upload');
-    }
-
-    if (!mood.mood || mood.mood === "") {
-      throw new Error('Incomplete mood data for Firestore upload');
-    }
-
-    const response = await fetch(
-      'http://localhost:8000/v1/firestore_upload/',
-      {
-        method: 'POST',
-        body: JSON.stringify({ transcript, mood }),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Firestore upload failed: ${text}`);
-    }
-
-    return await response.json();
-  }
-
-  // upload audio blob to stt service
-  private async uploadSpeech(audioBlob: Blob) {
-    if (!audioBlob || audioBlob.size === 0) {
-      throw new Error('Invalid audio blob for transcription');
-    }
-
-    const form = new FormData();
-
-    form.append('file', audioBlob, 'speech.webm');
-
-    const response = await fetch(
-      'http://localhost:8000/v1/transcribe/',
-      {
-        method: 'POST',
-        body: form,
-      }
-    );
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Transcription failed: ${text}`);
-    }
-
-    return await response.json();
-  }
-
-  // upload transcript to gemini for mood analysis
-  private async uploadTranscript(transcript: Transcript) {
-    if (!transcript || !transcript.text) {
-      throw new Error('Invalid transcript for mood analysis');
-    }
-
-    const response = await fetch(
-      'http://localhost:8000/v1/analyze_mood/',
-      {
-        method: 'POST',
-        body: JSON.stringify(transcript),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Mood analysis failed: ${text}`);
-    }
-
-    return await response.json();
-  }
-
+  
   // update button UI
   private updateUI(): void {
     if (this.isRecording) {

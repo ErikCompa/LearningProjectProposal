@@ -36,10 +36,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# speech to text endpoint
-# https://www.youtube.com/watch?v=n43Td-mU7oA
-@app.post("/v1/transcribe/")
-async def transcribe(file: UploadFile = File(...)):
+# single endpoint to transcribe, analyze mood, and upload to firestore
+@app.post("/v1/process_audio/")
+async def process_audio(file: UploadFile = File(...)):
+    # Transcription step
     # file check
     if (file.content_type != "audio/webm"):
         raise HTTPException(status_code=400, detail="Invalid file type. Only audio/webm is supported.")
@@ -69,17 +69,14 @@ async def transcribe(file: UploadFile = File(...)):
     if not response.results:
         raise HTTPException(status_code=400, detail="Transcription failed.")
 
-    # return transcript in pydantic model
-    return Transcript(
+    # transcript in pydantic model
+    transcript = Transcript(
         text=response.results[0].alternatives[0].transcript,
         confidence=response.results[0].alternatives[0].confidence
     )
+    print(f"Transcript step done: {transcript}")
 
-# gemini mood analysis endpoint
-# https://www.youtube.com/watch?v=qfWpPEgea2A
-# https://ai.google.dev/gemini-api/docs/structured-output?example=recipe
-@app.post("/v1/analyze_mood/")
-async def analyze(transcript: Transcript):
+    # Mood analysis step
     if not transcript.text:
         raise HTTPException(status_code=400, detail="Transcript text is empty.")
 
@@ -101,11 +98,9 @@ async def analyze(transcript: Transcript):
         raise HTTPException(status_code=400, detail="Mood analysis failed.")
 
     mood = Mood.model_validate_json(response.text)
-    return mood
+    print(f"Mood analysis step done: {mood}")
 
-# upload to firestore endpoint
-@app.post("/v1/firestore_upload/")
-async def upload_to_firestore(transcript: Transcript, mood: Mood):
+    # Upload to Firestore step
     if not transcript or not mood:
         raise HTTPException(status_code=400, detail="No response data provided.")
 
@@ -126,7 +121,7 @@ async def upload_to_firestore(transcript: Transcript, mood: Mood):
     if not write_res.update_time:
         raise HTTPException(status_code=400, detail="Failed to upload to Firestore.")
 
-    return {"success": True, "uid": transcript.uid}
+    return {"status": 200, "uid": transcript.uid}
 
 # get all from firestore endpoint
 @app.get("/v1/firestore_get/")
