@@ -1,7 +1,14 @@
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import (
+    FastAPI,
+    File,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from google import genai
@@ -41,9 +48,45 @@ app.add_middleware(
 )
 
 
-# single endpoint to transcribe, analyze mood, and upload to firestore
-@app.post("/v1/process_audio/")
+# websocket for streaming audio processing
+@app.websocket("/v1/ws/stream_process_audio/")
+async def websocket_stream_process_audio(websocket: WebSocket):
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+        sample_rate_hertz=48000,
+        language_code="en-US",
+        enable_word_time_offsets=True,
+    )
+    streaming_config = speech.StreamingRecognitionConfig(
+        config=config, interim_results=True
+    )
+
+    await websocket.accept()
+    print("WebSocket connection accepted")
+
+    while True:
+        try:
+            data = await websocket.receive_bytes()
+
+            requests = speech.StreamingRecognizeRequest(audio_content=data)
+
+            responses = speech_client.streaming_recognize(
+                config=streaming_config, requests=requests
+            )
+
+            print(responses)
+
+        except WebSocketDisconnect as e:
+            print("WebSocket disconnected:", e)
+            break
+        except Exception as e:
+            print("Error during WebSocket communication:", e)
+
+
+# single endpoint to batch transcribe, analyze mood, and upload to firestore
+@app.post("/v1/batch_process_audio/")
 async def batch_process_audio(file: Annotated[UploadFile, File(...)]):
+    print("Batch audio processing endpoint hit")
     transcript = await batchTranscriptionStep(file)
     mood = await moodAnalysisStep(transcript)
     uploadResult = await uploadToFirestoreStep(transcript, mood)

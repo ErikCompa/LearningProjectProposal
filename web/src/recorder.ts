@@ -20,6 +20,8 @@ export default class Recorder {
   private audioChunks: Blob[] = [];
   private recordList: RecordList;
   public records: FirestoreRecord[] = [];
+  private websocket: WebSocket | null = null;
+  private streaming: boolean = true;
 
   constructor(container: HTMLElement, recordList: RecordList) {
     this.recordList = recordList;
@@ -31,13 +33,95 @@ export default class Recorder {
 
   // Button toggle handler
   private toggle(): void {
-    if (this.isRecording) {
-      this.stop();
+    if (!this.streaming) {
+      if (this.isRecording) {
+        this.stop();
+      } else {
+        this.start();
+      }
     } else {
-      this.start();
+      // streaming mode
+      if (this.isRecording) {
+        this.stream_stop();
+      } else {
+        this.stream_start();
+      }
     }
   }
 
+  private stream_start(): void {
+    // start websocket
+    this.websocket = new WebSocket(
+      "ws://localhost:8000/v1/ws/stream_process_audio/"
+    );
+    this.websocket.onopen = () => {
+      console.log("Websocket open");
+    };
+
+    this.websocket.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
+    this.websocket.onclose = (event) => {
+      console.log("WebSocket connection closed:", event);
+    };
+    this.websocket.onmessage = (event) => {
+      console.log("WebSocket message received:", event.data);
+    };
+
+    // gets perms
+    navigator.mediaDevices
+      .getUserMedia({ audio: true, video: false })
+      .then((stream) => {
+        this.mediaRecorder = new MediaRecorder(stream); // new instance
+
+        this.mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            // process chunks
+            if (
+              this.websocket &&
+              this.websocket.readyState === WebSocket.OPEN
+            ) {
+              this.websocket.send(event.data);
+            }
+          }
+        };
+
+        // on stop event handler
+        this.mediaRecorder.onstop = async () => {};
+
+        this.mediaRecorder.start(250);
+        this.isRecording = true;
+        this.updateUI();
+        console.log("Recording started");
+      })
+      .catch((err) => {
+        console.error("Error accessing microphone:", err);
+        this.isRecording = false;
+        this.updateUI();
+      });
+  }
+
+  // stop recording
+  private stream_stop(): void {
+    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+      this.mediaRecorder.stop();
+      this.mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+      this.mediaRecorder = null;
+    }
+
+    // stop websocket after 1 second to allow final messages
+    setTimeout(() => {
+      if (this.websocket) {
+        this.websocket.close();
+        this.websocket = null;
+      }
+    }, 1000);
+
+    this.isRecording = false;
+    this.updateUI();
+    console.log("Recording stopped");
+  }
   // start recording
   private start(): void {
     // gets perms

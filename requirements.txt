@@ -7,3 +7,4 @@ google-genai
 google-cloud-firestore
 pytest
 ruff
+websockets
