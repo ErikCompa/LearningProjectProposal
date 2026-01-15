@@ -1,4 +1,3 @@
-import asyncio
 import queue
 import threading
 from pathlib import Path
@@ -54,6 +53,7 @@ app.add_middleware(
 # websocket for streaming audio processing
 # https://docs.cloud.google.com/speech-to-text/docs/v1/transcribe-streaming-audio#speech-streaming-recognize-python
 # https://docs.python.org/3/library/threading.html
+# https://fastapi.tiangolo.com/advanced/websockets/#create-a-websocket
 @app.websocket("/v1/ws/stream_process_audio/")
 async def websocket_stream_process_audio(websocket: WebSocket):
     # configure google stt streaming
@@ -128,13 +128,10 @@ async def websocket_stream_process_audio(websocket: WebSocket):
             while not res_queue.empty():
                 res = res_queue.get()
                 await websocket.send_json(res)
-
     except WebSocketDisconnect as e:
         print("websocket disconnected:", e)
-        audio_queue.put(None)
     except Exception as e:
         print("error during websocket communication:", e)
-        audio_queue.put(None)
     finally:
         stop.set()
         audio_queue.put(None)
