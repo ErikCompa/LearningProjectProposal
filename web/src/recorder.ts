@@ -73,7 +73,9 @@ export default class Recorder {
     navigator.mediaDevices
       .getUserMedia({ audio: true, video: false })
       .then((stream) => {
-        this.mediaRecorder = new MediaRecorder(stream); // new instance
+        this.mediaRecorder = new MediaRecorder(stream, {
+          mimeType: "audio/webm;codecs=opus",
+        }); // new instance
 
         this.mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0) {
