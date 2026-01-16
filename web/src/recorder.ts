@@ -1,3 +1,4 @@
+import type RealtimeAudio from "./realtimeAudio.ts";
 import RecordList from "./recordList.ts";
 
 // firestore collection structure
@@ -22,9 +23,15 @@ export default class Recorder {
   public records: FirestoreRecord[] = [];
   private websocket: WebSocket | null = null;
   private streaming: boolean = true;
+  private realtimeAudio: RealtimeAudio | null = null;
 
-  constructor(container: HTMLElement, recordList: RecordList) {
+  constructor(
+    container: HTMLElement,
+    recordList: RecordList,
+    realtimeAudio: RealtimeAudio
+  ) {
     this.recordList = recordList;
+    this.realtimeAudio = realtimeAudio;
     this.button = document.createElement("button");
     this.button.className = "recorder-button";
     this.button.addEventListener("click", () => this.toggle());
@@ -67,7 +74,15 @@ export default class Recorder {
     };
     this.websocket.onmessage = (event) => {
       console.log("WebSocket message received:", event.data);
+      const data = JSON.parse(event.data);
+      if (data.transcript) {
+        this.realtimeAudio?.update(data.transcript);
+      }
     };
+
+    // remove list if present
+    this.recordList?.clear();
+    this.realtimeAudio?.clear();
 
     // gets perms
     navigator.mediaDevices
@@ -90,7 +105,18 @@ export default class Recorder {
         };
 
         // on stop event handler
-        this.mediaRecorder.onstop = async () => {};
+        this.mediaRecorder.onstop = async () => {
+          this.realtimeAudio?.clear();
+          // retrieve from firestore
+          this.records = [];
+          try {
+            this.records = await this.getFromFirestore();
+            console.log("Retrieved records from Firestore:", this.records);
+            this.recordList?.update(this.records);
+          } catch (err) {
+            console.error("Failed to retrieve records from Firestore:", err);
+          }
+        };
 
         this.mediaRecorder.start(250);
         this.isRecording = true;
