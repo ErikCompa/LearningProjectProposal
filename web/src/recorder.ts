@@ -1,5 +1,6 @@
 import type RealtimeAudio from "./realtimeAudio.ts";
 import RecordList from "./recordList.ts";
+import Toggle from "./toggle.ts";
 
 // firestore collection structure
 interface FirestoreRecord {
@@ -24,14 +25,17 @@ export default class Recorder {
   private websocket: WebSocket | null = null;
   private streaming: boolean = true;
   private realtimeAudio: RealtimeAudio | null = null;
+  private toggle_streaming: Toggle;
 
   constructor(
     container: HTMLElement,
+    toggle_streaming: Toggle,
     recordList: RecordList,
-    realtimeAudio: RealtimeAudio
+    realtimeAudio: RealtimeAudio,
   ) {
     this.recordList = recordList;
     this.realtimeAudio = realtimeAudio;
+    this.toggle_streaming = toggle_streaming;
     this.button = document.createElement("button");
     this.button.className = "recorder-button";
     this.button.addEventListener("click", () => this.toggle());
@@ -40,6 +44,7 @@ export default class Recorder {
 
   // Button toggle handler
   private toggle(): void {
+    this.streaming = this.toggle_streaming.getStreamingMode();
     if (!this.streaming) {
       if (this.isRecording) {
         this.stop();
@@ -59,7 +64,7 @@ export default class Recorder {
   private stream_start(): void {
     // start websocket
     this.websocket = new WebSocket(
-      "ws://localhost:8000/v1/ws/stream_process_audio/"
+      "ws://localhost:8000/v1/ws/stream_process_audio/",
     );
     this.websocket.onopen = () => {
       console.log("Websocket open");
