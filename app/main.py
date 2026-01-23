@@ -1,5 +1,6 @@
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -61,7 +62,11 @@ app.add_middleware(
 async def websocket_stream_process_audio(websocket: WebSocket):
     # configure google stt streaming
     config = cloud_speech.RecognitionConfig(
-        auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+        explicit_decoding_config=cloud_speech.ExplicitDecodingConfig(
+            encoding=cloud_speech.ExplicitDecodingConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=16000,
+            audio_channel_count=1,
+        ),
         language_codes=["en-US"],
         model="long",  # chirp3 doesnt support interim results
         features=cloud_speech.RecognitionFeatures(
@@ -91,41 +96,46 @@ async def websocket_stream_process_audio(websocket: WebSocket):
     print("WebSocket connection accepted")
 
     def stt_thread():
-        if stop.is_set():
-            return
+        while not stop.is_set():
+            start = time.time()
 
-        def requests():
-            yield config_request
-            while True:
-                chunk = audio_queue.get()
-                if chunk is None:
-                    break
-                yield cloud_speech.StreamingRecognizeRequest(
-                    audio=chunk
-                )  # yield audio chunks to google stt
+            def requests():
+                yield config_request
+                while not stop.is_set():
+                    if (
+                        time.time() - start > 240
+                    ):  # 4 min limit, then restart stream recognize
+                        print("Restarting STT stream due to time limit\n\n\n\n\n\n\n")
+                        break
+                    chunk = audio_queue.get()
+                    if chunk is None:
+                        break
+                    yield cloud_speech.StreamingRecognizeRequest(
+                        audio=chunk
+                    )  # yield audio chunks to google stt
 
-        # call google stt
-        responses: cloud_speech.StreamingRecognizeResponse = (
-            speech_client.streaming_recognize(  # returns iterator
-                requests=requests()
+            # call google stt
+            responses: cloud_speech.StreamingRecognizeResponse = (
+                speech_client.streaming_recognize(  # returns iterator
+                    requests=requests()
+                )
             )
-        )
 
-        # process responses
-        try:
-            for response in responses:  # iterator blocks thread if no response
-                for result in response.results:
-                    print("STT Result received:", result)
-                    transcript_text = result.alternatives[0].transcript
-                    res_queue.put(
-                        {
-                            "transcript": transcript_text,
-                            "is_final": result.is_final,
-                            "stability": result.stability,
-                        }
-                    )
-        except Exception as e:
-            print("Error in STT thread:", e)
+            # process responses
+            try:
+                for response in responses:  # iterator blocks thread if no response
+                    for result in response.results:
+                        print("STT Result received:", result)
+                        transcript_text = result.alternatives[0].transcript
+                        res_queue.put(
+                            {
+                                "transcript": transcript_text,
+                                "is_final": result.is_final,
+                                "stability": result.stability,
+                            }
+                        )
+            except Exception as e:
+                print("Error in STT thread:", e)
 
     # run blocking thread for stt
     threading.Thread(target=stt_thread, daemon=True).start()
@@ -134,6 +144,7 @@ async def websocket_stream_process_audio(websocket: WebSocket):
         while True:
             # receive audio data from websocket
             data = await websocket.receive_bytes()
+            # print(f"Received audio data of length: {len(data)}")
 
             # put audio into q
             MAX_CHUNK_SIZE = 25600
@@ -197,11 +208,6 @@ if static_dir.exists():
 async def batchTranscriptionStep(file: UploadFile) -> Transcript:
     # Transcription step
     # file check
-    if file.content_type != "audio/webm":
-        raise HTTPException(
-            status_code=400, detail="Invalid file type. Only audio/webm is supported."
-        )
-
     if file.filename is None or file.filename == "":
         raise HTTPException(status_code=400, detail="No file uploaded.")
 
@@ -211,7 +217,11 @@ async def batchTranscriptionStep(file: UploadFile) -> Transcript:
     data = await file.read()
 
     config = cloud_speech.RecognitionConfig(
-        auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+        explicit_decoding_config=cloud_speech.ExplicitDecodingConfig(
+            encoding=cloud_speech.ExplicitDecodingConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=16000,
+            audio_channel_count=1,
+        ),
         language_codes=["en-US"],
         model="chirp_3",
     )
@@ -238,7 +248,10 @@ async def moodAnalysisStep(transcript: Transcript) -> Mood:
     if not transcript.text:
         raise HTTPException(status_code=400, detail="Transcript text is empty.")
 
-    propmt = "Analyze the following transcript and determine the overall mood of the user. Give a confidence score between 0.0 and 1.0 and evidence with explanations."
+    propmt = (
+        "Analyze the following transcript and determine the overall mood of the user. "
+        "Give a confidence score between 0.0 and 1.0 and evidence with explanations."
+    )
 
     transcript_data = transcript.model_dump()
 
@@ -282,4 +295,5 @@ async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
     if not write_res.update_time:
         raise HTTPException(status_code=400, detail="Failed to upload to Firestore.")
 
+    print(f"Upload to Firestore step done: {transcript.uid}")
     return {"status": 200, "uid": transcript.uid}

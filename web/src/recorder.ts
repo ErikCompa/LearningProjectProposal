@@ -18,14 +18,17 @@ interface FirestoreRecord {
 export default class Recorder {
   private isRecording: boolean = false;
   private button: HTMLButtonElement;
-  private mediaRecorder: MediaRecorder | null = null;
-  private audioChunks: Blob[] = [];
   private recordList: RecordList;
   public records: FirestoreRecord[] = [];
   private websocket: WebSocket | null = null;
   private streaming: boolean = true;
   private realtimeAudio: RealtimeAudio | null = null;
   private toggle_streaming: Toggle;
+  private audioContext: AudioContext = new AudioContext();
+  private source: MediaStreamAudioSourceNode | null = null;
+  private stream: MediaStream | null = null;
+  private pcmData: Float32Array[] = [];
+  private lin16buffer: Int16Array = new Int16Array();
 
   constructor(
     container: HTMLElement,
@@ -43,7 +46,7 @@ export default class Recorder {
   }
 
   // Button toggle handler
-  private toggle(): void {
+  private async toggle(): Promise<void> {
     this.streaming = this.toggle_streaming.getStreamingMode();
     if (!this.streaming) {
       if (this.isRecording) {
@@ -54,14 +57,24 @@ export default class Recorder {
     } else {
       // streaming mode
       if (this.isRecording) {
-        this.stream_stop();
+        await this.stream_stop();
       } else {
-        this.stream_start();
+        await this.stream_start();
       }
     }
   }
 
-  private stream_start(): void {
+  // convert float32 to linear16
+  private linear16PCM(float32Array: Float32Array) {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      let s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return int16Array;
+  }
+
+  private async stream_start(): Promise<void> {
     // start websocket
     this.websocket = new WebSocket(
       "ws://localhost:8000/v1/ws/stream_process_audio/",
@@ -93,111 +106,116 @@ export default class Recorder {
     this.recordList?.clear();
     this.realtimeAudio?.clear();
 
-    // gets perms
-    navigator.mediaDevices
-      .getUserMedia({ audio: true, video: false })
-      .then((stream) => {
-        this.mediaRecorder = new MediaRecorder(stream, {
-          mimeType: "audio/webm;codecs=opus",
-        }); // new instance
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
+    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    this.source = this.audioContext.createMediaStreamSource(this.stream);
 
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            // process chunks
-            if (
-              this.websocket &&
-              this.websocket.readyState === WebSocket.OPEN
-            ) {
-              this.websocket.send(event.data);
-            }
-          }
-        };
+    await this.audioContext.audioWorklet.addModule("recorderNode.js");
+    const recorderNode = new AudioWorkletNode(
+      this.audioContext,
+      "recorder-node",
+    );
+    this.source.connect(recorderNode);
 
-        // on stop event handler
-        this.mediaRecorder.onstop = async () => {
-          // retrieve from firestore
-          this.records = [];
-          try {
-            this.records = await this.getFromFirestore();
-            console.log("Retrieved records from Firestore:", this.records);
-            this.realtimeAudio?.clear();
-            this.recordList?.update(this.records);
-          } catch (err) {
-            console.error("Failed to retrieve records from Firestore:", err);
-          }
-        };
+    this.pcmData = [];
+    recorderNode.port.onmessage = (event) => {
+      const workletInput = event.data[0];
+      this.pcmData.push(workletInput);
+      const lin16buffer = this.linear16PCM(workletInput);
 
-        this.mediaRecorder.start(250);
-        this.isRecording = true;
-        this.updateUI();
-        console.log("Recording started");
-      })
-      .catch((err) => {
-        console.error("Error accessing microphone:", err);
-        this.isRecording = false;
-        this.updateUI();
-      });
+      // send to websocket
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+        this.websocket.send(lin16buffer.buffer);
+      }
+    };
+    this.audioContext.resume();
+    this.isRecording = true;
+    await this.updateUI();
+    console.log("Recording started");
   }
 
   // stop recording
-  private stream_stop(): void {
-    // stop after 5 seconds to allow final messages to be processed
+  private async stream_stop(): Promise<void> {
+    this.stream!.getTracks().forEach((track) => track.stop()); // Stop the microphone track
+    this.audioContext.close(); // Close the audio context
+
+    // Combine pcmChunks into a single Float32Array
+    const totalLength = this.pcmData.reduce(
+      (acc, chunk) => acc + chunk.length,
+      0,
+    );
+    const pcmData = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of this.pcmData) {
+      pcmData.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    // give few sec for final transcription to come back
     setTimeout(() => {
-      if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-        this.mediaRecorder.stop();
-        this.mediaRecorder.stream.getTracks().forEach((track) => track.stop());
-        this.mediaRecorder = null;
-      }
       if (this.websocket) {
         this.websocket.close();
         this.websocket = null;
+        this.updateUI();
       }
     }, 5000);
 
     this.isRecording = false;
-    this.updateUI();
     console.log("Recording stopped");
   }
   // start recording
-  private start(): void {
+  private async start(): Promise<void> {
     // gets perms
-    navigator.mediaDevices
-      .getUserMedia({ audio: true, video: false })
-      .then((stream) => {
-        this.audioChunks = [];
-        this.mediaRecorder = new MediaRecorder(stream); // new instance
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
+    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    this.source = this.audioContext.createMediaStreamSource(this.stream);
 
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            this.audioChunks.push(event.data); // get blob into chunk arr
-          }
-        };
+    await this.audioContext.audioWorklet.addModule("recorderNode.js");
+    const recorderNode = new AudioWorkletNode(
+      this.audioContext,
+      "recorder-node",
+    );
+    this.source.connect(recorderNode);
 
-        // on stop event handler
-        this.mediaRecorder.onstop = async () => {
-          await this.batchProcessAudio();
-          this.audioChunks = [];
-        };
-
-        this.mediaRecorder.start();
-        this.isRecording = true;
-        this.updateUI();
-        console.log("Recording started");
-      })
-      .catch((err) => {
-        console.error("Error accessing microphone:", err);
-        this.isRecording = false;
-        this.updateUI();
-      });
+    this.pcmData = [];
+    this.lin16buffer = new Int16Array();
+    recorderNode.port.onmessage = (event) => {
+      const workletInput = event.data[0];
+      this.pcmData.push(workletInput);
+      this.lin16buffer = new Int16Array([
+        ...this.lin16buffer,
+        ...this.linear16PCM(workletInput),
+      ]);
+    };
+    this.audioContext.resume();
+    this.isRecording = true;
+    await this.updateUI();
+    console.log("Recording started");
   }
 
   // stop recording
-  private stop(): void {
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      this.mediaRecorder.stop();
-      this.mediaRecorder.stream.getTracks().forEach((track) => track.stop());
-      this.mediaRecorder = null;
+  private async stop(): Promise<void> {
+    this.stream!.getTracks().forEach((track) => track.stop()); // Stop the microphone track
+    this.audioContext.close(); // Close the audio context
+
+    // Combine pcmChunks into a single Float32Array
+    const totalLength = this.pcmData.reduce(
+      (acc, chunk) => acc + chunk.length,
+      0,
+    );
+    const pcmData = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of this.pcmData) {
+      pcmData.set(chunk, offset);
+      offset += chunk.length;
     }
+    this.batchProcessAudio(); // process audio after stopping
     this.isRecording = false;
     this.updateUI();
     console.log("Recording stopped");
@@ -205,17 +223,15 @@ export default class Recorder {
 
   // process audio after recording stops
   private async batchProcessAudio() {
-    const audioBlob = new Blob(this.audioChunks, { type: "audio/webm" }); //transform blob into webm format
-
-    // Call combined endpoint
     try {
-      if (!audioBlob || audioBlob.size === 0) {
-        throw new Error("Invalid audio blob for transcription");
-      }
+      // wav is an ArrayBuffer
+      const arrayBuffer = new ArrayBuffer(this.lin16buffer.byteLength);
+      new Uint8Array(arrayBuffer).set(new Uint8Array(this.lin16buffer.buffer));
+      var blob = new Blob([arrayBuffer], { type: "application/octet-stream" });
 
       const form = new FormData();
 
-      form.append("file", audioBlob, "speech.webm");
+      form.append("file", blob, "speech.wav");
 
       const res = await fetch("http://localhost:8000/v1/batch_process_audio/", {
         method: "POST",
@@ -229,16 +245,6 @@ export default class Recorder {
     } catch (err) {
       console.error("Error processing audio:", err);
       return;
-    }
-
-    // retrieve from firestore
-    this.records = [];
-    try {
-      this.records = await this.getFromFirestore();
-      console.log("Retrieved records from Firestore:", this.records);
-      this.recordList?.update(this.records);
-    } catch (err) {
-      console.error("Failed to retrieve records from Firestore:", err);
     }
   }
 
@@ -257,11 +263,20 @@ export default class Recorder {
   }
 
   // update button UI
-  private updateUI(): void {
+  private async updateUI(): Promise<void> {
     if (this.isRecording) {
       this.button.classList.add("active");
     } else {
       this.button.classList.remove("active");
+      this.records = [];
+      try {
+        this.records = await this.getFromFirestore();
+        console.log("Retrieved records from Firestore:", this.records);
+        this.realtimeAudio?.clear();
+        this.recordList?.update(this.records);
+      } catch (err) {
+        console.error("Failed to retrieve records from Firestore:", err);
+      }
     }
   }
 }
