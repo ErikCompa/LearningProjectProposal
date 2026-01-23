@@ -1,0 +1,87 @@
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  margin: 0;
+  background: #f5f5f5;
+}
+
+#app {
+  text-align: center;
+}
+
+h1 {
+  color: #000000;
+  margin-bottom: 2rem;
+}
+
+#record-button-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+}
+
+#transcription-mode-toggle-container {
+}
+
+#realtime-transcript-container {
+}
+
+#transcription-list-container {
+}
+
+.recorder-button {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: none;
+  background: #9ca3af;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.recorder-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+}
+
+.recorder-button.active {
+  background: #ff0000;
+}
+
+.transcription-list {
+  max-width: 600px;
+  margin: 2rem;
+  padding: 0 1rem;
+}
+
+.transcription-item {
+  background: white;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+.record-realtime-transcript {
+  margin-top: 0.5rem;
+  font-weight: bold;
+  color: #111827;
+  padding: 1rem;
+  text-align: left;
+  background: white;
+}
+
+.final {
+  color: black;
+}
+
+.incoming {
+  color: grey;
+}
