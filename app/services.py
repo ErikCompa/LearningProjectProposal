@@ -48,7 +48,7 @@ async def batchTranscriptionStep(file: UploadFile) -> tuple[Transcript, bytes]:
     transcript = Transcript(
         text=response.results[0].alternatives[0].transcript,
     )
-    print(f"Transcript step done: {transcript}")
+    # print(f"Transcript step done: {transcript}")
     return transcript, data
 
 
@@ -77,7 +77,7 @@ async def moodAnalysisStep(transcript: Transcript) -> Mood:
         raise HTTPException(status_code=400, detail="Mood analysis failed.")
 
     mood = Mood.model_validate_json(response.text)
-    print(f"Mood analysis step done: {mood}")
+    # print(f"Mood analysis step done: {mood}")
     return mood
 
 
@@ -103,5 +103,5 @@ async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
     if not write_res.update_time:
         raise HTTPException(status_code=400, detail="Failed to upload to Firestore.")
 
-    print(f"Upload to Firestore step done: {transcript.uid}")
+    # print(f"Upload to Firestore step done: {transcript.uid}")
     return {"status": 200, "uid": transcript.uid}

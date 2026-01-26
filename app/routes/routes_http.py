@@ -21,7 +21,6 @@ router = APIRouter(tags=["http"])
 async def batch_process_audio(file: Annotated[UploadFile, File(...)]):
     transcript, data = await batchTranscriptionStep(file)
     mood = await moodAnalysisStep(transcript)
-    # TODO upload data to bucket here l8r
     uploadResult = await uploadToFirestoreStep(transcript, mood)
     return uploadResult
 

@@ -30,6 +30,10 @@ export default class StreamingService {
       }
     };
 
+    this.websocket.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
     this.websocket.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
