@@ -116,12 +116,16 @@ async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
 def lin16ToWav(audio_bytes: bytes) -> bytes:
     audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
 
-    byte_io = io.BytesIO()
-    with wave.open(byte_io, "wb") as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(16000)
-        wav_file.writeframes(audio_array.tobytes())
+    try:
+        byte_io = io.BytesIO()
+        with wave.open(byte_io, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(16000)
+            wav_file.writeframes(audio_array.tobytes())
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to convert to WAV: {e}")
 
     return byte_io.getvalue()
 
@@ -135,6 +139,9 @@ async def uploadToBucketStep(audio_bytes: bytes, filename: str) -> str:
     bucket = get_storage_client().bucket("speech_wayv_bucket")
 
     blob = bucket.blob(f"audio/{filename}.wav")
-    blob.upload_from_string(wav_bytes, content_type="audio/wav")
+    try:
+        blob.upload_from_string(wav_bytes, content_type="audio/wav")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to upload to Bucket: {e}")
 
     return f"gs://speech_wayv_bucket/audio/{filename}.wav"
