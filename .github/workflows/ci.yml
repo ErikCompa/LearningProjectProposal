@@ -2,75 +2,80 @@ name: CI pipeline with tests and docker
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
-    # test Job
-    test:
-        runs-on: ubuntu-latest
+  # test Job
+  test:
+    runs-on: ubuntu-latest
 
-        steps:
-        - uses: actions/checkout@v2
-        - name: Set up Python
-          uses: actions/setup-python@v2
-          with:
-            python-version: 3.14.1
-        
-        - name: install dependencies
-          run: |
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-        
-        - name: run tests
-          run: |
-            ruff check .
-            ruff format --check .
-            pytest
-    
-    # build frontend job
-    front:
-        runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.14.1
 
-        steps:
-        - uses: actions/checkout@v2
-        - name: build frontend
-          run: |
-            cd web
-            npm ci
-            npm run build
+      - name: install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    # build and push docker image to Google Artifact Registry
-    google-artifact-registry:
-        needs: [ test, front ]
+      - name: run tests
+        run: |
+          ruff check .
+          ruff format --check .
+          pytest
 
-        runs-on: ubuntu-latest
+  # build frontend job
+  front:
+    runs-on: ubuntu-latest
 
-        steps:
-        - uses: actions/checkout@v2
-        
-        - name: authenticate to gcloud
-          uses: google-github-actions/auth@v2
-          with:
-            workload_identity_provider: projects/596334589140/locations/global/workloadIdentityPools/githubactions/providers/github
-            service_account: githubactions@learningprojectproposal.iam.gserviceaccount.com
+    steps:
+      - uses: actions/checkout@v2
+      - name: build frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
 
-        - name: Set up SDK
-          uses: google-github-actions/setup-gcloud@v2
+      - name: Copy frontend build to FastAPI static folder
+        run: |
+          rm -rf app/static
+          cp -r web/dist app/static
 
-        - name: configure docker for artifact registry
-          run: |
-            gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+  # build and push docker image to Google Artifact Registry
+  google-artifact-registry:
+    needs: [test, front]
 
-        - name: build docker image
-          run: |
-            docker build -t us-central1-docker.pkg.dev/learningprojectproposal/githubactionsrepo/mood-detection:${{ github.sha }} .
+    runs-on: ubuntu-latest
 
-        - name: push docker image
-          run: |
-            docker push us-central1-docker.pkg.dev/learningprojectproposal/githubactionsrepo/mood-detection:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: authenticate to gcloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/596334589140/locations/global/workloadIdentityPools/githubactions/providers/github
+          service_account: githubactions@learningprojectproposal.iam.gserviceaccount.com
+
+      - name: Set up SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: configure docker for artifact registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: build docker image
+        run: |
+          docker build -t us-central1-docker.pkg.dev/learningprojectproposal/githubactionsrepo/mood-detection:${{ github.sha }} .
+
+      - name: push docker image
+        run: |
+          docker push us-central1-docker.pkg.dev/learningprojectproposal/githubactionsrepo/mood-detection:${{ github.sha }}
