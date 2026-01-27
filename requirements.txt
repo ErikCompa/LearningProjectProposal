@@ -8,5 +8,5 @@ google-cloud-firestore
 pytest
 ruff
 websockets
-numpy
-pyflac
+pydub
+audioop-lts

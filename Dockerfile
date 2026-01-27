@@ -10,11 +10,6 @@ RUN npm run build
 FROM python:3.14.2-slim-trixie AS backend
 WORKDIR /code
 
-# Install build dependencies for pyflac and numpy
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc build-essential libflac-dev && \
-    rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/

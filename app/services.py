@@ -1,15 +1,12 @@
 import io
-import subprocess
-import wave
 
-import numpy as np
-import pyflac
 from fastapi import (
     HTTPException,
     UploadFile,
 )
 from google.cloud import firestore
 from google.cloud.speech_v2.types import cloud_speech
+from pydub import AudioSegment
 
 from app.models import Mood, Transcript
 from app.speech_config import get_batch_recognition_config
@@ -129,64 +126,31 @@ async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
 
 # convert LINEAR16 audio to WAV
 def lin16ToWav(audio_bytes: bytes) -> bytes:
-    audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-
-    try:
-        byte_io = io.BytesIO()
-        with wave.open(byte_io, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(16000)
-            wav_file.writeframes(audio_array.tobytes())
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to convert to WAV: {e}")
-
-    return byte_io.getvalue()
+    audio = AudioSegment(
+        data=audio_bytes,
+        sample_width=2,
+        frame_rate=16000,
+        channels=1,
+    )
+    out_io = io.BytesIO()
+    audio.export(out_io, format="wav")
+    return out_io.getvalue()
 
 
 # convert WAV to MP3
-# https://www.geeksforgeeks.org/python/convert-mp3-to-wav-using-python/
 def wavToMp3(wav_bytes: bytes) -> bytes:
-    mp3_bytes, _ = subprocess.Popen(
-        [
-            "ffmpeg",
-            "-i",
-            "pipe:0",
-            "-b:a",
-            "192K",
-            "-f",
-            "mp3",
-            "pipe:1",
-        ],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ).communicate(input=wav_bytes)
-    return mp3_bytes
+    audio = AudioSegment.from_wav(io.BytesIO(wav_bytes))
+    out_io = io.BytesIO()
+    audio.export(out_io, format="mp3", bitrate="192k")
+    return out_io.getvalue()
 
 
 # convert LINEAR16 audio to FLAC
-# https://pyflac.readthedocs.io/en/latest/#encoder
 def lin16ToFlac(audio_bytes: bytes) -> bytes:
-    flac_chunks = []
-
-    def write_callback(
-        buffer: bytes, num_bytes: int, num_samples: int, current_frame: int
-    ):
-        flac_chunks.append(buffer)
-
-    encoder = pyflac.StreamEncoder(
-        sample_rate=16000,
-        write_callback=write_callback,
-        compression_level=5,
-    )
-
-    audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-    encoder.process(audio_array)
-    encoder.finish()
-
-    return b"".join(flac_chunks)
+    audio = AudioSegment(data=audio_bytes, sample_width=2, frame_rate=16000, channels=1)
+    out_io = io.BytesIO()
+    audio.export(out_io, format="flac")
+    return out_io.getvalue()
 
 
 # Upload audio file to bucket
@@ -199,9 +163,13 @@ async def uploadToBucketStep(audio_bytes: bytes, filename: str) -> str:
     flac_bytes = lin16ToFlac(audio_bytes)
     bucket = get_storage_client().bucket("speech_wayv_bucket")
 
-    blob = bucket.blob(f"audio/{filename}.flac")
+    blob_flac = bucket.blob(f"audio/{filename}.flac")
+    # blob_mp3 = bucket.blob(f"audio/{filename}.mp3")
+    # blob_wav = bucket.blob(f"audio/{filename}.wav")
     try:
-        blob.upload_from_string(flac_bytes, content_type="audio/flac")
+        # blob_wav.upload_from_string(wav_bytes, content_type="audio/wav")
+        # blob_mp3.upload_from_string(mp3_bytes, content_type="audio/mpeg")
+        blob_flac.upload_from_string(flac_bytes, content_type="audio/flac")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to upload to Bucket: {e}")
 
