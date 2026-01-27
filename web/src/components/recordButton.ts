@@ -21,29 +21,40 @@ export default class RecordButton {
     this.buttonElement.className = "record-button";
     this.buttonElement.addEventListener("click", () => this.toggle());
     this.container.appendChild(this.buttonElement);
-    this.updatebuttonUI();
   }
 
   private async toggle(): Promise<void> {
-    if (this.audioRecorder.getRecordingStatus()) {
-      await this.audioRecorder.stopRecording();
-      if (this.onRecordingComplete) {
-        await this.onRecordingComplete();
+    this.updateButtonUI(null);
+    try {
+      if (this.audioRecorder.getRecordingStatus()) {
+        await this.audioRecorder.stopRecording();
+        if (this.onRecordingComplete) {
+          await this.onRecordingComplete();
+        }
+      } else {
+        await this.audioRecorder.startRecording();
+        if (this.onRecordingStart) {
+          this.onRecordingStart();
+        }
       }
-    } else {
-      await this.audioRecorder.startRecording();
-      if (this.onRecordingStart) {
-        await this.onRecordingStart();
-      }
+    } catch (error) {
+      this.updateButtonUI(this.audioRecorder.getRecordingStatus());
     }
-    this.updatebuttonUI();
   }
 
-  private updatebuttonUI(): void {
-    if (this.audioRecorder.getRecordingStatus()) {
-      this.buttonElement.classList.add("active");
-    } else {
+  private updateButtonUI(isRecording: boolean | null): void {
+    if (isRecording !== null) {
+      if (isRecording) {
+        this.buttonElement.classList.add("active");
+      } else {
+        this.buttonElement.classList.remove("active");
+      }
+      return;
+    }
+    if (this.buttonElement.classList.contains("active")) {
       this.buttonElement.classList.remove("active");
+    } else {
+      this.buttonElement.classList.add("active");
     }
   }
 }
