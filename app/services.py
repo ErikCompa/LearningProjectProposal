@@ -70,7 +70,7 @@ async def moodAnalysisStep(transcript: Transcript) -> Mood:
     transcript_data = transcript.model_dump()
 
     response = get_gemini_client().models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         contents=[propmt, str(transcript_data)],
         config={
             "response_mime_type": "application/json",
