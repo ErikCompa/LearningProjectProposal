@@ -6,7 +6,7 @@ from app.models import Mood
 
 def test_mood_model_valid_data():
     data = {
-        "mood": "happy",
+        "mood": [("happy", 0.92)],
         "confidence": 0.92,
         "evidence": ["The user laughed", "Positive tone detected"],
     }
@@ -18,7 +18,7 @@ def test_mood_model_valid_data():
 
 def test_mood_model_invalid_data():
     data = {
-        "mood": "",
+        "mood": [("", 1.1)],
         "confidence": "high",
         "evidence": "Not a list",
     }
@@ -26,7 +26,7 @@ def test_mood_model_invalid_data():
         Mood(**data)
     errors = exc_info.value.errors()
     assert any(
-        error["loc"] == ("mood",) and error["type"] == "string_too_short"
+        error["loc"] == ("mood",) and "between 0.0 and 1.0" in error["msg"]
         for error in errors
     )
     assert any(
@@ -41,7 +41,7 @@ def test_mood_model_invalid_data():
 
 def test_confidence_must_be_float():
     data = {
-        "mood": "sad",
+        "mood": [("sad", 0.5)],
         "confidence": "not_a_float",
         "evidence": ["The user sighed"],
     }
@@ -51,7 +51,7 @@ def test_confidence_must_be_float():
 
 def test_confidence_rounding():
     data = {
-        "mood": "angry",
+        "mood": [("angry", 0.8)],
         "confidence": 0.8765,
         "evidence": ["The user raised their voice"],
     }

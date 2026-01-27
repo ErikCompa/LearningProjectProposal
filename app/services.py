@@ -61,12 +61,10 @@ async def batchTranscriptionStep(file: UploadFile) -> tuple[Transcript, bytes]:
 
 # Send transcript to gemini for mood analysis
 async def moodAnalysisStep(transcript: Transcript) -> Mood:
-    if not transcript.text:
-        raise HTTPException(status_code=400, detail="Transcript text is empty.")
-
     propmt = (
-        "Analyze the following transcript and determine the overall mood of the user. "
-        "Give a confidence score between 0.0 and 1.0 and evidence with explanations."
+        "Analyze the following transcript and give a normalized (0.0 to 1.0) probability to be each one of the following mood categories:"
+        "depressed, unmotivated, tired, anxious, stressed, unfocused, hyperactive, angry, sad, numb, confused, happy, excited, motivated, active, calm, focused, clear headed"
+        "Also give a overall confidence score between 0.0 and 1.0 and evidence with explanations."
     )
 
     transcript_data = transcript.model_dump()
@@ -83,9 +81,25 @@ async def moodAnalysisStep(transcript: Transcript) -> Mood:
     if not response.text:
         raise HTTPException(status_code=400, detail="Mood analysis failed.")
 
-    mood = Mood.model_validate_json(response.text)
-    # print(f"Mood analysis step done: {mood}")
+    moods = Mood.model_validate_json(response.text)
+    # print(f"Mood analysis step done: {moods}")
+    mood = filterMoods(moods)
+
     return mood
+
+
+# Function to pick top 50% moods only
+def filterMoods(moods: Mood) -> Mood:
+    sorted_moods = sorted(moods.mood, key=lambda x: x[1], reverse=True)
+    filtered = []
+    total = 0.0
+    for label, score in sorted_moods:
+        if total >= 0.5:
+            break
+        filtered.append((label, score))
+        total += score
+    moods.mood = filtered
+    return moods
 
 
 # Upload transcript and mood to firestore
@@ -97,11 +111,9 @@ async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
     write_res = doc_ref.document(transcript.uid).set(
         {
             "created_at": firestore.SERVER_TIMESTAMP,
-            "mood": {
-                "confidence": mood.confidence,
-                "evidence": mood.evidence,
-                "mood": mood.mood,
-            },
+            "mood_confidence": mood.confidence,
+            "mood_evidence": mood.evidence,
+            "moods": [{"label": label, "score": score} for label, score in mood.mood],
             "transcript": transcript.text,
             "uid": transcript.uid,
         }
