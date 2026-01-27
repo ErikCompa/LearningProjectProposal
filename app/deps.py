@@ -8,7 +8,7 @@ credentials, project = default()
 gemini_client = genai.Client(
     vertexai=True,  # vertex for ADC so there are no keys
     project=project,
-    location="us-central1",
+    location="global",
     credentials=credentials,
 )
 

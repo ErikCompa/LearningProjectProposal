@@ -61,16 +61,17 @@ async def batchTranscriptionStep(file: UploadFile) -> tuple[Transcript, bytes]:
 
 # Send transcript to gemini for mood analysis
 async def moodAnalysisStep(transcript: Transcript) -> Mood:
-    propmt = (
-        "Analyze the following transcript and give a normalized (0.0 to 1.0) probability to be each one of the following mood categories:"
-        "depressed, unmotivated, tired, anxious, stressed, unfocused, hyperactive, angry, sad, numb, confused, happy, excited, motivated, active, calm, focused, clear headed"
-        "Also give a overall confidence score between 0.0 and 1.0 and evidence with explanations."
-    )
+    propmt = """
+        Analyze the following transcript and give a probability to be each one of the following mood categories:
+        depressed, unmotivated, tired, anxious, stressed, unfocused, hyperactive, angry, sad, numb, confused, happy, excited, motivated, active, calm, focused, clear headed
+        Normalize probabilities so they add up to 1.0
+        Also give an overall confidence score between 0.0 and 1.0 and evidence with explanations.
+    """
 
     transcript_data = transcript.model_dump()
 
     response = get_gemini_client().models.generate_content(
-        model="gemini-2.5-flash-lite",
+        model="gemini-3-pro-preview",
         contents=[propmt, str(transcript_data)],
         config={
             "response_mime_type": "application/json",
