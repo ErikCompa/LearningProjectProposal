@@ -33,14 +33,21 @@ export default class TranscriptionList {
 
       const timestamp = new Date(transcription.created_at).toLocaleString();
 
+      const moods = transcription.moods
+        ? transcription.moods
+            .map(
+              (m: { label: string; score: number }) =>
+                `${m.label} (${(m.score * 100).toFixed(0)}%)`,
+            )
+            .join(", ")
+        : "";
+
       transcriptionItem.innerHTML = `
         <div>Created at: ${timestamp}</div>
         <div>Transcript: ${transcription.transcript}</div>
-        <div>Mood: ${transcription.mood.mood}</div>
-        <div>Mood Confidence: ${(transcription.mood.confidence * 100).toFixed(
-          0,
-        )}%</div>
-        <div>Evidence: ${transcription.mood.evidence?.join(", ")}</div>
+        <div>Moods: ${moods}</div>
+        <div>Mood Confidence: ${(transcription.mood_confidence * 100).toFixed(0)}%</div>
+        <div>Evidence: ${transcription.mood_evidence?.join(", ")}</div>
       `;
 
       this.listElement.appendChild(transcriptionItem);
