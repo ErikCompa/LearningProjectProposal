@@ -1,8 +1,10 @@
+const FIRESTORE_GET_URL = import.meta.env.VITE_FIRESTORE_GET_URL;
+
 export default class FirestoreService {
   constructor() {}
 
   public async getFromFirestore() {
-    const response = await fetch("http://localhost:8000/v1/firestore_get/", {
+    const response = await fetch(FIRESTORE_GET_URL, {
       method: "GET",
     });
 

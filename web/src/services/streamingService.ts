@@ -1,3 +1,5 @@
+const WS_URL = import.meta.env.VITE_WS_URL;
+
 export default class StreamingService {
   private websocket: WebSocket | null = null;
   private onTranscriptUpdate?: (
@@ -20,9 +22,7 @@ export default class StreamingService {
   }
 
   public connect(): void {
-    this.websocket = new WebSocket(
-      "ws://localhost:8000/v1/ws/stream_process_audio/",
-    );
+    this.websocket = new WebSocket(WS_URL);
 
     this.websocket.onclose = () => {
       if (this.onProcessingComplete) {

@@ -1,3 +1,5 @@
+const BATCH_AUDIO_URL = import.meta.env.VITE_BATCH_AUDIO_URL;
+
 export default class BatchService {
   public async processBatchAudio(linear16Buffer: Int16Array): Promise<void> {
     try {
@@ -10,7 +12,7 @@ export default class BatchService {
       const form = new FormData();
       form.append("file", blob, "speech.wav");
 
-      const res = await fetch("http://localhost:8000/v1/batch_process_audio/", {
+      const res = await fetch(BATCH_AUDIO_URL, {
         method: "POST",
         body: form,
       });
