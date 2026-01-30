@@ -5,6 +5,7 @@ import TranscriptionList from "./components/transcriptionList.ts";
 import TranscriptionModeToggle from "./components/transcriptionModeToggle.ts";
 import AudioRecorder from "./audio/audioRecorder.ts";
 import FirestoreService from "./services/firestoreService.ts";
+import type firestoreRecord from "./audio/types";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -33,8 +34,21 @@ const transcriptionListContainer = document.querySelector<HTMLDivElement>(
   "#transcription-list-container",
 )!;
 
-const handleProcessingComplete = async (): Promise<void> => {
-  const records = await firestoreService.getFromFirestore();
+const handleProcessingComplete = async (
+  expectedText?: string,
+): Promise<void> => {
+  let records;
+  for (let i = 0; i < 120; i++) {
+    // up to 60 seconds
+    records = await firestoreService.getFromFirestore();
+    if (
+      expectedText &&
+      records.some((r: firestoreRecord) => r.transcript === expectedText)
+    ) {
+      break;
+    }
+    await new Promise((res) => setTimeout(res, 2000));
+  }
   transcriptionListComponent.update(records);
   transcriptionListComponent.show();
 };
