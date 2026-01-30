@@ -55,8 +55,8 @@ const handleRecordingComplete = async (): Promise<void> => {
 };
 
 const audioRecorder = new AudioRecorder(
-  (transcript: string, isFinal: boolean, stability: number) => {
-    realtimeTranscriptComponent.update(transcript, isFinal, stability);
+  (transcript: string, isFinal: boolean) => {
+    realtimeTranscriptComponent.update(transcript, isFinal);
   },
   handleProcessingComplete,
 );

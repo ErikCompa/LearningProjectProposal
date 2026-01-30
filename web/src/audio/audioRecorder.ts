@@ -14,11 +14,7 @@ export default class AudioRecorder {
   private onProcessingComplete?: () => void;
 
   constructor(
-    onTranscriptUpdate?: (
-      transcript: string,
-      isFinal: boolean,
-      stability: number,
-    ) => void,
+    onTranscriptUpdate?: (transcript: string, isFinal: boolean) => void,
     onProcessingComplete?: () => void,
   ) {
     this.onProcessingComplete = onProcessingComplete;

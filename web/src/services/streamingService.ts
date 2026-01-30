@@ -2,19 +2,11 @@ const WS_URL = import.meta.env.VITE_WS_URL;
 
 export default class StreamingService {
   private websocket: WebSocket | null = null;
-  private onTranscriptUpdate?: (
-    transcript: string,
-    isFinal: boolean,
-    stability: number,
-  ) => void;
+  private onTranscriptUpdate?: (transcript: string, isFinal: boolean) => void;
   private onProcessingComplete?: () => void;
 
   constructor(
-    onTranscriptUpdate?: (
-      transcript: string,
-      isFinal: boolean,
-      stability: number,
-    ) => void,
+    onTranscriptUpdate?: (transcript: string, isFinal: boolean) => void,
     onProcessingComplete?: () => void,
   ) {
     this.onTranscriptUpdate = onTranscriptUpdate;
@@ -38,11 +30,7 @@ export default class StreamingService {
       const data = JSON.parse(event.data);
 
       if (this.onTranscriptUpdate && data.transcript) {
-        this.onTranscriptUpdate(
-          data.transcript,
-          data.is_final || false,
-          data.stability || 0.0,
-        );
+        this.onTranscriptUpdate(data.transcript, data.is_final || false);
       }
     };
   }

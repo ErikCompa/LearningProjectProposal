@@ -1,97 +1,110 @@
+import asyncio
+import base64
 import os
-import time
-from multiprocessing import Event, Process, Queue
 
-from fastapi import (
-    APIRouter,
-    WebSocket,
-    WebSocketDisconnect,
-)
-from google.cloud.speech_v2.types import cloud_speech
+from elevenlabs import RealtimeAudioOptions, RealtimeEvents
+from elevenlabs.realtime.scribe import AudioFormat, CommitStrategy
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.deps import get_speech_v2_client
+from app.deps import get_elevenlabs
 from app.models import Transcript
-from app.services import (
-    moodAnalysisStep,
-    uploadToBucketStep,
-    uploadToFirestoreStep,
-)
-from app.speech_config import get_streaming_config_request
+from app.services import moodAnalysisStep, uploadToBucketStep, uploadToFirestoreStep
 
 router = APIRouter(tags=["ws"])
 
 
-# STT process function to run separately
-def stt_process(audio_queue, res_queue, stop):
-    while not stop.is_set():
-        start = time.time()
+async def stt_elevenlabs(audio_queue, res_queue, stop):
+    elevenlabs = get_elevenlabs()
+    connection = await elevenlabs.speech_to_text.realtime.connect(
+        RealtimeAudioOptions(
+            model_id="scribe_v2_realtime",
+            audio_format=AudioFormat.PCM_16000,
+            sample_rate=16000,
+            include_timestamps=True,
+            commit_strategy=CommitStrategy.VAD,
+            vad_silence_threshold_secs=1.5,
+            vad_threshold=0.4,
+            min_speech_duration_ms=100,
+            min_silence_duration_ms=100,
+        )
+    )
 
-        # gRPC request generator
-        def requests():
-            yield get_streaming_config_request()
-            while not stop.is_set():
-                # 4 min limit, then restart stream recognize
-                if time.time() - start > 240:
-                    break
-                chunk = audio_queue.get()
-                if chunk is None:
-                    break
-                # yield audio chunks to google stt
-                yield cloud_speech.StreamingRecognizeRequest(audio=chunk)
+    def on_session_started(data):
+        print(f"Session started: {data}")
 
-        # process responses
-        try:
-            # call gRPC stt, return iterator
-            responses = get_speech_v2_client().streaming_recognize(requests=requests())
-            for response in responses:  # iterator blocks thread if no response
-                for result in response.results:
-                    transcript_text = result.alternatives[0].transcript
-                    res_queue.put(
-                        {
-                            "transcript": transcript_text,
-                            "is_final": result.is_final,
-                            "stability": result.stability,
-                        }
-                    )
-        except Exception as e:
-            print("error in STT process:", e)
+    def on_partial_transcript(data):
+        res_queue.put_nowait(
+            {
+                "transcript": data.get("text", ""),
+                "is_final": False,
+            }
+        )
+
+    def on_committed_transcript(data):
+        res_queue.put_nowait(
+            {
+                "transcript": data.get("text", ""),
+                "is_final": True,
+            }
+        )
+
+    def on_error(error):
+        print(f"Error: {error}")
+        stop.set()
+
+    def on_close():
+        print("Connection closed")
+        stop.set()
+
+    connection.on(RealtimeEvents.SESSION_STARTED, on_session_started)
+    connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, on_partial_transcript)
+    connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, on_committed_transcript)
+    connection.on(RealtimeEvents.ERROR, on_error)
+    connection.on(RealtimeEvents.CLOSE, on_close)
+
+    async def send_audio():
+        while not stop.is_set():
+            chunk = await audio_queue.get()
+            if chunk is None:
+                break
+            audio_base64 = base64.b64encode(chunk).decode("utf-8")
+            await connection.send({"audio_base_64": audio_base64})
+
+    sender = asyncio.create_task(send_audio())
+    try:
+        await stop.wait()
+    finally:
+        await connection.close()
+        sender.cancel()
 
 
 # WebSocket for realtime audio transcription
 @router.websocket(os.getenv("STREAM_PROCESS_AUDIO_URL"))
 async def websocket_stream_process_audio(websocket: WebSocket):
-    # queues for thread safe audio and results passing
-    audio_queue = Queue()  # audio chunks from websocket, get consumed by stt thread
+    audio_queue = asyncio.Queue()
+    res_queue = asyncio.Queue()
+    stop = asyncio.Event()
     audioBytes = bytearray()
-    res_queue = Queue()  # send stt results from stt thread to main thread
-    stop = Event()
     full_transcript = ""
 
     # initialization
     await websocket.accept()
-
-    # start process, takes a little longer than thread
-    # https://www.python-engineer.com/courses/advancedpython/17-multiprocessing/
-    p1 = Process(target=stt_process, args=(audio_queue, res_queue, stop))
-    p1.start()
+    stt_task = asyncio.create_task(stt_elevenlabs(audio_queue, res_queue, stop))
 
     try:
         while True:
             # receive audio data from websocket
             data = await websocket.receive_bytes()
 
-            # put audio into q
-            MAX_CHUNK_SIZE = 25600
-            for i in range(0, len(data), MAX_CHUNK_SIZE):
-                chunk = data[i : i + MAX_CHUNK_SIZE]
-                audio_queue.put(chunk)
-                audioBytes.extend(chunk)
+            # put audio data to audio q continously
+            audio_queue.put_nowait(data)
+            audioBytes.extend(data)
 
             # read from results q
             while not res_queue.empty():
-                res = res_queue.get()
+                res = await res_queue.get()
                 if res["is_final"]:
-                    full_transcript += res["transcript"] + ". "
+                    full_transcript += res["transcript"]
                 # send result back to client for realtime display
                 await websocket.send_json(res)
     except WebSocketDisconnect as e:
@@ -101,8 +114,8 @@ async def websocket_stream_process_audio(websocket: WebSocket):
     finally:
         # cleanup
         stop.set()
-        audio_queue.put(None)
-        p1.join()
+        await audio_queue.put(None)
+        await stt_task
 
         # process final transcript
         transcript = Transcript(

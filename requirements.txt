@@ -2,12 +2,12 @@ fastapi
 uvicorn
 pydantic
 python-multipart
-google-cloud-speech
 google-genai
 google-cloud-firestore
+google-cloud-storage
 pytest
 ruff
-websockets
+websockets==13.0
 pydub
 audioop-lts
 dotenv

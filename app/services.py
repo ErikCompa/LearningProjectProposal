@@ -12,11 +12,9 @@ from app.deps import (
     get_elevenlabs,
     get_firestore_client,
     get_gemini_client,
-    get_speech_v2_client,
     get_storage_client,
 )
 from app.models import Mood, Transcript
-from app.speech_config import get_batch_recognition_request
 
 
 # Get all from firestore endpoint
@@ -29,7 +27,7 @@ async def get_from_firestore():
 
 
 # batch transcription step with elevenlabs
-async def elevenlabs_batchTranscriptionStep(
+async def batchTranscriptionStep(
     file: UploadFile,
 ) -> tuple[Transcript, bytes]:
     if file.filename is None or file.filename == "":
@@ -52,29 +50,6 @@ async def elevenlabs_batchTranscriptionStep(
 
     transcript = Transcript(
         text=str(transcript.text),
-    )
-    # print(f"Transcript step done: {transcript}")
-    return transcript, data
-
-
-# Send entire audio file for batch transcription
-async def batchTranscriptionStep(file: UploadFile) -> tuple[Transcript, bytes]:
-    if file.filename is None or file.filename == "":
-        raise HTTPException(status_code=400, detail="No file uploaded.")
-
-    if file.size is None or file.size == 0:
-        raise HTTPException(status_code=400, detail="Empty file uploaded.")
-
-    # raw audio bytes in data for mp3(?) conversion later and saving to bucket
-    data = await file.read()
-
-    request = get_batch_recognition_request(data)
-
-    # gRPC call
-    response = get_speech_v2_client().recognize(request=request)
-
-    transcript = Transcript(
-        text=response.results[0].alternatives[0].transcript,
     )
     # print(f"Transcript step done: {transcript}")
     return transcript, data
