@@ -12,6 +12,7 @@ export default class AudioRecorder {
   private streamingService: StreamingService;
   private transcriptionMode: TranscriptionMode = "stream";
   private onProcessingComplete?: () => void;
+  private recorderNode: AudioWorkletNode | null = null;
 
   constructor(
     onTranscriptUpdate?: (
@@ -33,15 +34,19 @@ export default class AudioRecorder {
     return this.isRecording;
   }
 
-  private setRecordingStatus(status: boolean): void {
-    this.isRecording = status;
-  }
-
   public setTranscriptionMode(mode: TranscriptionMode): void {
     this.transcriptionMode = mode;
   }
 
   public async startRecording(): Promise<void> {
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      await this.audioContext.close();
+    }
+    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    this.source = null;
+    this.stream = null;
+    this.lin16buffer = new Int16Array();
+
     this.setRecordingStatus(true);
     if (this.transcriptionMode === "stream") {
       await this.startStreamRecording();
@@ -57,11 +62,27 @@ export default class AudioRecorder {
     } else {
       await this.stopBatchRecording();
     }
+    this.audioContext = null as any;
+    this.source = null;
+    this.stream = null;
+    this.lin16buffer = new Int16Array();
+  }
+
+  private setRecordingStatus(status: boolean): void {
+    console.log("setRecordingStatus:", status);
+    this.isRecording = status;
   }
 
   private async startStreamRecording(): Promise<void> {
-    // new audio context
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      await this.audioContext.close();
+    }
     this.audioContext = new AudioContext({ sampleRate: 16000 });
+
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => track.stop());
+      this.stream = null;
+    }
 
     // get mic stream
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -74,17 +95,17 @@ export default class AudioRecorder {
 
     // add recorder worklet custom node
     await this.audioContext.audioWorklet.addModule("/recorderNode.js");
-    const recorderNode = new AudioWorkletNode(
+    this.recorderNode = new AudioWorkletNode(
       this.audioContext,
       "recorder-node",
     );
-    this.source.connect(recorderNode);
+    this.source.connect(this.recorderNode);
 
     // connect to streaming service
     this.streamingService.connect();
 
     // handle incoming audio data from worklet
-    recorderNode.port.onmessage = (event) => {
+    this.recorderNode.port.onmessage = (event) => {
       const workletInput = event.data[0];
       if (workletInput) {
         const float32Data = new Float32Array(workletInput);
@@ -96,14 +117,23 @@ export default class AudioRecorder {
   }
 
   private async stopStreamRecording(): Promise<void> {
-    // stop stream and context
-    this.stream!.getTracks().forEach((track) => track.stop());
-    this.audioContext.close();
-
-    // signal streaming service to end stream, delay disconnect to ensure all data is sent/received
-    setTimeout(() => {
-      this.streamingService.disconnect();
-    }, 5000);
+    if (this.source) {
+      this.source.disconnect();
+      this.source = null;
+    }
+    if (this.recorderNode) {
+      this.recorderNode.disconnect();
+      this.recorderNode.port.onmessage = null;
+      this.recorderNode = null;
+    }
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => track.stop());
+      this.stream = null;
+    }
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      await this.audioContext.close();
+    }
+    this.streamingService.disconnect();
   }
 
   private async startBatchRecording(): Promise<void> {

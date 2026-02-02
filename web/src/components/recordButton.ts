@@ -1,4 +1,5 @@
 import AudioRecorder from "../audio/audioRecorder";
+import StreamingService from "../services/streamingService";
 
 export default class RecordButton {
   private container: HTMLElement;
@@ -6,10 +7,12 @@ export default class RecordButton {
   private audioRecorder: AudioRecorder;
   private onRecordingComplete?: () => Promise<void>;
   private onRecordingStart?: () => void;
+  private streamingService: StreamingService;
 
   constructor(
     container: HTMLElement,
     audioRecorder: AudioRecorder,
+    streamingService: StreamingService,
     onRecordingComplete?: () => Promise<void>,
     onRecordingStart?: () => void,
   ) {
@@ -17,6 +20,7 @@ export default class RecordButton {
     this.audioRecorder = audioRecorder;
     this.onRecordingComplete = onRecordingComplete;
     this.onRecordingStart = onRecordingStart;
+    this.streamingService = streamingService;
     this.buttonElement = document.createElement("button");
     this.buttonElement.className = "record-button";
     this.buttonElement.addEventListener("click", () => this.toggle());
@@ -32,6 +36,9 @@ export default class RecordButton {
           await this.onRecordingComplete();
         }
       } else {
+        if (this.streamingService.isWebSocketOpen()) {
+          return;
+        }
         await this.audioRecorder.startRecording();
         if (this.onRecordingStart) {
           this.onRecordingStart();
@@ -56,5 +63,9 @@ export default class RecordButton {
     } else {
       this.buttonElement.classList.add("active");
     }
+  }
+
+  public setEnabled(enabled: boolean): void {
+    this.buttonElement.disabled = !enabled;
   }
 }

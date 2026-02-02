@@ -51,7 +51,7 @@ async def batch_transcription_step(file: UploadFile) -> tuple[Transcript, bytes]
 
 
 # Send transcript to gemini for mood analysis
-async def mood_analysis_step(transcript: Transcript) -> Mood:
+def mood_analysis_step(transcript: Transcript) -> Mood:
     propmt = """
         Analyze the following transcript and give a probability to be each one of the following mood categories:
         depressed, insomnia, unmotivated, tired, anxious, stressed, unfocused, hyperactive, angry, sad, numb, confused, happy, excited, motivated, active, calm, focused, clear headed
@@ -80,7 +80,7 @@ async def mood_analysis_step(transcript: Transcript) -> Mood:
 
 
 # Upload transcript and mood to firestore
-async def upload_to_firestore_step(transcript: Transcript, mood: Mood):
+def upload_to_firestore_step(transcript: Transcript, mood: Mood):
     if not transcript or not mood:
         raise HTTPException(status_code=400, detail="No response data provided.")
 
@@ -135,7 +135,7 @@ def linear_16_to_flac(audio_bytes: bytes) -> bytes:
 
 
 # Upload audio file to bucket
-async def upload_to_bucket_step(audio_bytes: bytes, filename: str) -> str:
+def upload_to_bucket_step(audio_bytes: bytes, filename: str) -> str:
     if not audio_bytes or not filename:
         raise HTTPException(status_code=400, detail="No audio data provided.")
 

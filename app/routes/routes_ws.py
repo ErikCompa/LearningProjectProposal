@@ -1,6 +1,8 @@
+import asyncio
 import os
 import threading
 import time
+import uuid
 from queue import Queue
 from threading import Event
 
@@ -23,99 +25,98 @@ from app.speech_config import get_streaming_config_request
 router = APIRouter(tags=["ws"])
 
 
+def process_final_transcript(transcript: Transcript, audioBytes: bytes):
+    try:
+        mood = mood_analysis_step(transcript)
+        res = upload_to_firestore_step(transcript, mood)
+        if res["uid"]:
+            upload_to_bucket_step(audioBytes, res["uid"])
+        print("final transcript processing done:", res)
+    except Exception as e:
+        print("error during final transcript processing:", e)
+
+
 # WebSocket for realtime audio transcription
 @router.websocket(os.getenv("STREAM_PROCESS_AUDIO_URL"))
 async def websocket_stream_process_audio(websocket: WebSocket):
     def stt_thread():
-        while not stop.is_set():
-            start = time.time()
+        try:
+            while not stop.is_set():
+                start = time.time()
 
-            # gRPC request generator
-            def requests():
-                yield get_streaming_config_request()
-                while not stop.is_set():
-                    if (
-                        time.time() - start > 240
-                    ):  # 4 min limit, then restart stream recognize
-                        break
-                    chunk = audio_queue.get()
-                    if chunk is None:
-                        break
-                    yield cloud_speech.StreamingRecognizeRequest(
-                        audio=chunk
-                    )  # yield audio chunks to google stt
+                def requests():
+                    yield get_streaming_config_request()
+                    while not stop.is_set():
+                        if time.time() - start > 240:
+                            print("4 min limit reached, breaking request generator.")
+                            break
+                        chunk = audio_queue.get()
+                        if chunk is None:
+                            break
+                        yield cloud_speech.StreamingRecognizeRequest(audio=chunk)
 
-            # call gRPC stt
-            responses: cloud_speech.StreamingRecognizeResponse = (
-                get_speech_v2_client().streaming_recognize(  # returns iterator
-                    requests=requests()
-                )
-            )
+                try:
+                    responses: cloud_speech.StreamingRecognizeResponse = (
+                        get_speech_v2_client().streaming_recognize(requests=requests())
+                    )
 
-            # process responses
-            try:
-                for response in responses:  # iterator blocks thread if no response
-                    for result in response.results:
-                        # print("STT Result received:\n", result)
-                        transcript_text = result.alternatives[0].transcript
-                        res_queue.put(
-                            {
-                                "transcript": transcript_text,
-                                "is_final": result.is_final,
-                                "stability": result.stability,
-                            }
-                        )
-            except Exception as e:
-                print("or in STT thread:", e)
+                    for response in responses:
+                        for result in response.results:
+                            transcript_text = result.alternatives[0].transcript
+                            res_queue.put(
+                                {
+                                    "transcript": transcript_text,
+                                    "is_final": result.is_final,
+                                    "stability": result.stability,
+                                }
+                            )
+                except Exception as e:
+                    print(f"Exception in STT thread: {e}")
+                break
+        except Exception as e:
+            print(f"Fatal error in STT thread: {e}")
 
-    # queues for thread safe audio and results passing
-    audio_queue = Queue()  # audio chunks from websocket, get consumed by stt thread
+    audio_queue = Queue()
     audioBytes = bytearray()
-    res_queue = Queue()  # send stt results from stt thread to main thread
+    res_queue = Queue()
     stop = Event()
     full_transcript = ""
 
-    # initialization
     await websocket.accept()
 
-    # start thread
     threading.Thread(target=stt_thread, daemon=True).start()
 
     try:
         while True:
-            # receive audio data from websocket
             data = await websocket.receive_bytes()
 
-            # put audio into q
             MAX_CHUNK_SIZE = 25600
             for i in range(0, len(data), MAX_CHUNK_SIZE):
                 chunk = data[i : i + MAX_CHUNK_SIZE]
                 audio_queue.put(chunk)
                 audioBytes.extend(chunk)
 
-            # read from results q
             while not res_queue.empty():
                 res = res_queue.get()
                 if res["is_final"]:
                     full_transcript += res["transcript"] + ". "
-                # send result back to client for realtime display
                 await websocket.send_json(res)
     except WebSocketDisconnect as e:
-        print("websocket disconnected:", e)
+        print(f"websocket disconnected: {e}")
     except Exception as e:
-        print("error during websocket communication:", e)
+        print(f"error during websocket communication: {e}")
     finally:
-        # cleanup
         stop.set()
         audio_queue.put(None)
 
-        # process final transcript
-        transcript = Transcript(
-            text=full_transcript,
-        )
-
-        mood = await mood_analysis_step(transcript)
-        res = await upload_to_firestore_step(transcript, mood)
-        if res["uid"]:
-            await upload_to_bucket_step(audioBytes, res["uid"])
-    return res
+        # make final transcript. Only process if not empty
+        if full_transcript.strip():
+            transcript = Transcript(
+                text=full_transcript,
+            )
+            # offload final processing to background task
+            asyncio.create_task(
+                asyncio.to_thread(process_final_transcript, transcript, audioBytes)
+            )
+        else:
+            print("No transcript to process, skipping final processing.")

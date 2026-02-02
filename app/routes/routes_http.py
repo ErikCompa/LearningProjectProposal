@@ -3,10 +3,12 @@ from typing import Annotated
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     File,
     UploadFile,
 )
 
+from app.models import Transcript
 from app.services import (
     batch_transcription_step,
     get_from_firestore,
@@ -18,15 +20,26 @@ from app.services import (
 router = APIRouter(tags=["http"])
 
 
+# Process final transcript in background
+def process_final_transcript(transcript: Transcript, audioBytes: bytes):
+    try:
+        mood = mood_analysis_step(transcript)
+        res = upload_to_firestore_step(transcript, mood)
+        if res["uid"]:
+            upload_to_bucket_step(audioBytes, res["uid"])
+        print("final transcript processing done:", res)
+    except Exception as e:
+        print("error during final transcript processing:", e)
+
+
 # POST batch audio processing endpoint
 @router.post(os.getenv("BATCH_PROCESS_AUDIO_URL"))
-async def batch_process_audio(file: Annotated[UploadFile, File(...)]):
+async def batch_process_audio(
+    file: Annotated[UploadFile, File(...)],
+    background_tasks: BackgroundTasks,
+):
     transcript, data = await batch_transcription_step(file)
-    mood = await mood_analysis_step(transcript)
-    res = await upload_to_firestore_step(transcript, mood)
-    if res["uid"]:
-        await upload_to_bucket_step(data, res["uid"])
-    return res
+    background_tasks.add_task(process_final_transcript, transcript, data)
 
 
 # GET records from firestore endpoint

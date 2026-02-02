@@ -1,10 +1,12 @@
 import "./styles/style.css";
-import RecordButton from "./components/recordButton.ts";
+import RecordButton from "./components/recordButton";
 import RealtimeTranscript from "./components/realtimeTranscript.ts";
 import TranscriptionList from "./components/transcriptionList.ts";
 import TranscriptionModeToggle from "./components/transcriptionModeToggle.ts";
 import AudioRecorder from "./audio/audioRecorder.ts";
 import FirestoreService from "./services/firestoreService.ts";
+import StreamingService from "./services/streamingService";
+import UpdateButton from "./components/updateButton";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -12,6 +14,7 @@ app.innerHTML = `
     <h1>Mood Detection</h1>
     <div id="record-button-container"></div>
     <div id="transcription-mode-toggle-container"></div>
+    <div id="update-button-container"></div> <!-- Add this line -->
     <div id="realtime-transcript-container"></div>
     <div id="transcription-list-container"></div>
   </div>
@@ -31,6 +34,10 @@ const realtimeTranscriptContainer = document.querySelector<HTMLDivElement>(
 
 const transcriptionListContainer = document.querySelector<HTMLDivElement>(
   "#transcription-list-container",
+)!;
+
+const updateButtonContainer = document.querySelector<HTMLDivElement>(
+  "#update-button-container",
 )!;
 
 const handleProcessingComplete = async (): Promise<void> => {
@@ -60,7 +67,16 @@ const audioRecorder = new AudioRecorder(
   },
   handleProcessingComplete,
 );
+
 const firestoreService = new FirestoreService();
+
+const streamingService = new StreamingService(
+  (transcript, isFinal, stability) => {
+    realtimeTranscriptComponent.update(transcript, isFinal, stability);
+  },
+  handleProcessingComplete,
+  () => recordButton.setEnabled(true),
+);
 
 const transcriptionModeToggle = new TranscriptionModeToggle(
   transcriptionModeToggleContainer,
@@ -75,9 +91,16 @@ const realtimeTranscriptComponent = new RealtimeTranscript(
   realtimeTranscriptContainer,
 );
 
-new RecordButton(
+const recordButton = new RecordButton(
   recordButtonContainer,
   audioRecorder,
+  streamingService,
   handleRecordingComplete,
   handleRecordingStart,
+);
+
+new UpdateButton(
+  updateButtonContainer,
+  firestoreService,
+  transcriptionListComponent,
 );

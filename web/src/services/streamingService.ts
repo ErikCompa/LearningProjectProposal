@@ -8,6 +8,7 @@ export default class StreamingService {
     stability: number,
   ) => void;
   private onProcessingComplete?: () => void;
+  private onWebSocketClosed?: () => void;
 
   constructor(
     onTranscriptUpdate?: (
@@ -16,18 +17,32 @@ export default class StreamingService {
       stability: number,
     ) => void,
     onProcessingComplete?: () => void,
+    onWebSocketClosed?: () => void,
   ) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onProcessingComplete = onProcessingComplete;
+    this.onWebSocketClosed = onWebSocketClosed;
   }
 
   public connect(): void {
+    if (
+      this.websocket &&
+      (this.websocket.readyState === WebSocket.OPEN ||
+        this.websocket.readyState === WebSocket.CONNECTING)
+    ) {
+      this.websocket.close();
+      return;
+    }
     this.websocket = new WebSocket(WS_URL);
 
     this.websocket.onclose = () => {
       if (this.onProcessingComplete) {
         this.onProcessingComplete();
       }
+      if (this.onWebSocketClosed) {
+        this.onWebSocketClosed();
+      }
+      this.websocket = null;
     };
 
     this.websocket.onerror = (error) => {
@@ -50,7 +65,6 @@ export default class StreamingService {
   public disconnect(): void {
     if (this.websocket) {
       this.websocket.close();
-      this.websocket = null;
     }
   }
 
@@ -58,5 +72,9 @@ export default class StreamingService {
     if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
       this.websocket.send(data.buffer);
     }
+  }
+
+  public isWebSocketOpen(): boolean {
+    return !!this.websocket && this.websocket.readyState === WebSocket.OPEN;
   }
 }
