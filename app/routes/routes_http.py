@@ -1,5 +1,5 @@
 import os
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -11,6 +11,7 @@ from fastapi import (
 from app.models import Transcript
 from app.services import (
     batch_transcription_step,
+    elevenlabs_batch_transcription_step,
     get_from_firestore,
     mood_analysis_step,
     upload_to_bucket_step,
@@ -37,8 +38,12 @@ def process_final_transcript(transcript: Transcript, audioBytes: bytes):
 async def batch_process_audio(
     file: Annotated[UploadFile, File(...)],
     background_tasks: BackgroundTasks,
+    provider: Literal["google", "elevenlabs"] = "google",
 ):
-    transcript, data = await batch_transcription_step(file)
+    if provider == "elevenlabs":
+        transcript, data = await elevenlabs_batch_transcription_step(file)
+    else:
+        transcript, data = await batch_transcription_step(file)
     background_tasks.add_task(process_final_transcript, transcript, data)
 
 
