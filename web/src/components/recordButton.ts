@@ -1,26 +1,13 @@
 import AudioRecorder from "../audio/audioRecorder";
-import StreamingService from "../services/streamingService";
 
 export default class RecordButton {
   private container: HTMLElement;
   private buttonElement: HTMLButtonElement;
   private audioRecorder: AudioRecorder;
-  private onRecordingComplete?: () => Promise<void>;
-  private onRecordingStart?: () => void;
-  private streamingService: StreamingService;
 
-  constructor(
-    container: HTMLElement,
-    audioRecorder: AudioRecorder,
-    streamingService: StreamingService,
-    onRecordingComplete?: () => Promise<void>,
-    onRecordingStart?: () => void,
-  ) {
+  constructor(container: HTMLElement, audioRecorder: AudioRecorder) {
     this.container = container;
     this.audioRecorder = audioRecorder;
-    this.onRecordingComplete = onRecordingComplete;
-    this.onRecordingStart = onRecordingStart;
-    this.streamingService = streamingService;
     this.buttonElement = document.createElement("button");
     this.buttonElement.className = "record-button";
     this.buttonElement.addEventListener("click", () => this.toggle());
@@ -28,44 +15,35 @@ export default class RecordButton {
   }
 
   private async toggle(): Promise<void> {
-    this.updateButtonUI(null);
     try {
       if (this.audioRecorder.getRecordingStatus()) {
+        // User clicked to stop recording early
         await this.audioRecorder.stopRecording();
-        if (this.onRecordingComplete) {
-          await this.onRecordingComplete();
-        }
+        this.updateButtonUI(false);
       } else {
-        if (this.streamingService.isWebSocketOpen()) {
-          return;
-        }
+        // Start recording and session
         await this.audioRecorder.startRecording();
-        if (this.onRecordingStart) {
-          this.onRecordingStart();
-        }
+        this.updateButtonUI(true);
       }
     } catch (error) {
-      this.updateButtonUI(this.audioRecorder.getRecordingStatus());
+      console.error("Error toggling recording:", error);
+      this.updateButtonUI(false);
     }
   }
 
-  private updateButtonUI(isRecording: boolean | null): void {
-    if (isRecording !== null) {
-      if (isRecording) {
-        this.buttonElement.classList.add("active");
-      } else {
-        this.buttonElement.classList.remove("active");
-      }
-      return;
-    }
-    if (this.buttonElement.classList.contains("active")) {
-      this.buttonElement.classList.remove("active");
-    } else {
+  private updateButtonUI(isRecording: boolean): void {
+    if (isRecording) {
       this.buttonElement.classList.add("active");
+    } else {
+      this.buttonElement.classList.remove("active");
     }
   }
 
   public setEnabled(enabled: boolean): void {
     this.buttonElement.disabled = !enabled;
+  }
+
+  public setSessionActive(active: boolean): void {
+    this.updateButtonUI(active);
   }
 }

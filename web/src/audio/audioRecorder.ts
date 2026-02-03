@@ -1,6 +1,3 @@
-import type { TranscriptionMode } from "./types";
-import type { STTProvider } from "../components/sttProviderToggle";
-import BatchService from "../services/batchService";
 import StreamingService from "../services/streamingService";
 
 export default class AudioRecorder {
@@ -8,37 +5,15 @@ export default class AudioRecorder {
   private audioContext: AudioContext = new AudioContext();
   private source: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
-  private lin16buffer: Int16Array = new Int16Array();
-  private batchService: BatchService;
   private streamingService: StreamingService;
-  private transcriptionMode: TranscriptionMode = "stream";
-  private onProcessingComplete?: () => void;
   private recorderNode: AudioWorkletNode | null = null;
-  private sttProvider: STTProvider = "google";
 
-  constructor(
-    streamingService: StreamingService,
-    onProcessingComplete?: () => void,
-  ) {
-    this.onProcessingComplete = onProcessingComplete;
-    this.batchService = new BatchService();
+  constructor(streamingService: StreamingService) {
     this.streamingService = streamingService;
   }
 
   public getRecordingStatus(): boolean {
     return this.isRecording;
-  }
-
-  public setTranscriptionMode(mode: TranscriptionMode): void {
-    this.transcriptionMode = mode;
-  }
-
-  public setSTTProvider(provider: STTProvider): void {
-    this.sttProvider = provider;
-  }
-
-  public getSTTProvider(): STTProvider {
-    return this.sttProvider;
   }
 
   public async startRecording(): Promise<void> {
@@ -48,27 +23,17 @@ export default class AudioRecorder {
     this.audioContext = new AudioContext({ sampleRate: 16000 });
     this.source = null;
     this.stream = null;
-    this.lin16buffer = new Int16Array();
 
     this.setRecordingStatus(true);
-    if (this.transcriptionMode === "stream") {
-      await this.startStreamRecording();
-    } else {
-      await this.startBatchRecording();
-    }
+    await this.startStreamRecording();
   }
 
   public async stopRecording(): Promise<void> {
     this.setRecordingStatus(false);
-    if (this.transcriptionMode === "stream") {
-      await this.stopStreamRecording();
-    } else {
-      await this.stopBatchRecording();
-    }
+    await this.stopStreamRecording();
     this.audioContext = null as any;
     this.source = null;
     this.stream = null;
-    this.lin16buffer = new Int16Array();
   }
 
   private setRecordingStatus(status: boolean): void {
@@ -103,9 +68,6 @@ export default class AudioRecorder {
     );
     this.source.connect(this.recorderNode);
 
-    // Update provider before connecting
-    this.streamingService.setProvider(this.sttProvider);
-
     // connect to streaming service
     this.streamingService.connect();
 
@@ -139,59 +101,6 @@ export default class AudioRecorder {
       await this.audioContext.close();
     }
     this.streamingService.disconnect();
-  }
-
-  private async startBatchRecording(): Promise<void> {
-    // new audio context
-    this.audioContext = new AudioContext({ sampleRate: 16000 });
-
-    // get mic stream
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: false,
-    });
-
-    // set context source to stream
-    this.source = this.audioContext.createMediaStreamSource(this.stream);
-
-    // add recorder worklet custom node
-    await this.audioContext.audioWorklet.addModule("/recorderNode.js");
-    const recorderNode = new AudioWorkletNode(
-      this.audioContext,
-      "recorder-node",
-    );
-    this.source.connect(recorderNode);
-
-    // initialize buffer
-    this.lin16buffer = new Int16Array();
-
-    // handle incoming audio data from worklet
-    recorderNode.port.onmessage = (event) => {
-      const workletInput = event.data[0];
-      this.lin16buffer = new Int16Array([
-        ...this.lin16buffer,
-        ...this.linear16PCM(workletInput),
-      ]);
-    };
-    this.audioContext.resume();
-  }
-
-  private async stopBatchRecording(): Promise<void> {
-    // stop stream and context
-    this.stream!.getTracks().forEach((track) => track.stop());
-    this.audioContext.close();
-
-    // call batchService with lin16buffer and provider
-    await this.batchService.processBatchAudio(
-      this.lin16buffer,
-      this.sttProvider,
-    );
-
-    if (this.onProcessingComplete) {
-      this.onProcessingComplete();
-    }
-
-    this.lin16buffer = new Int16Array();
   }
 
   // convert float32 to linear16

@@ -20,13 +20,24 @@ async def analyze_mood(
 
         Given the past user responses and your questions, as well as the latest question and answer pair,
         determine the user's current emotional state in terms of mood and confidence level.
+        
+        IMPORTANT: The wheel of emotions has 3 levels of depth:
+        - Level 1 (Primary): happy, sad, angry, fearful, surprised, disgusted, bad
+        - Level 2 (Secondary): playful, content, interested, proud, lonely, vulnerable, despair, guilty, etc.
+        - Level 3 (Tertiary): aroused, cheeky, free, joyful, curious, isolated, abandoned, victimized, etc.
+        
+        Your goal is to identify the MOST SPECIFIC emotion possible from the user's responses.
+        If you can determine a tertiary (level 3) emotion with confidence, use that.
+        If only secondary (level 2) is clear, use that.
+        Only fall back to primary (level 1) if the response is too vague.
 
         Work through the following steps:
         1. Review the previous question and answer pairs to understand the context.
         2. Analyze the latest answer in relation to the latest question.
         3. Map the emotional cues from the previous and current answers to the wheel of emotions.
-        4. Determine the most fitting mood from the wheel of emotions, the deeper you can go into the layers the better, along with a confidence score.
-        5. Provide the mood and confidence score in the specified response format.
+        4. Determine the DEEPEST/MOST SPECIFIC fitting mood from the wheel of emotions (prefer level 3 > level 2 > level 1).
+        5. Set confidence based on how clearly the emotion is expressed (specific details = higher confidence).
+        6. Provide the mood and confidence score in the specified response format.
         
         WHEEL OF EMOTIONS:
         {wheel_of_emotions}
@@ -42,7 +53,7 @@ async def analyze_mood(
 
         RESPONSE FORMAT:
         {{
-            "mood": "<detected mood from the wheel of emotions>",
+            "mood": "<detected mood from the wheel of emotions - USE THE MOST SPECIFIC LEVEL POSSIBLE>",
             "confidence": <confidence score between 0 and 1>
         }}
     """
@@ -79,9 +90,21 @@ async def analyze_mood(
 
 
 async def get_next_question(
-    qa_pairs: list[tuple[str, str]], moods: list[tuple[str, float]]
+    qa_pairs: list[tuple[str, str]],
+    moods: list[tuple[str, float]],
+    current_depth: int,
+    max_depth: int,
 ) -> str:
     next_question = ""
+
+    # Determine depth guidance for the LLM
+    depth_names = ["unknown", "primary", "secondary", "tertiary"]
+    current_depth_name = depth_names[current_depth] if current_depth <= 3 else "unknown"
+    target_depth_name = (
+        depth_names[min(current_depth + 1, max_depth)]
+        if current_depth < max_depth
+        else depth_names[max_depth]
+    )
 
     prompt = """
         You are an expert in emotional analysis and questioning techniques using the wheel of emotions framework.
@@ -89,12 +112,26 @@ async def get_next_question(
         Based on the previous question and answer pairs, as well as the detected moods and their confidence levels,
         generate the next most effective question to better understand the user's emotional state.
 
+        CURRENT EMOTIONAL DEPTH: {current_depth_name} level (depth {current_depth})
+        TARGET DEPTH: {target_depth_name} level (depth {target_depth})
+        
+        The wheel of emotions has 3 levels of depth:
+        - Level 1 (Primary): happy, sad, angry, fearful, surprised, disgusted, bad
+        - Level 2 (Secondary): playful, content, interested, proud, lonely, vulnerable, etc.
+        - Level 3 (Tertiary): aroused, cheeky, free, joyful, curious, isolated, abandoned, etc.
+
         Work through the following steps:
         1. Review the previous question and answer pairs to understand the context.
-        2. Analyze the detected moods and their confidence levels to identify gaps in understanding.
-        3. Formulate a question that targets those gaps, while not being direct or leading, but aiming to elicit responses that will clarify the user's emotional state.
-        4. Ensure the question is open-ended and encourages the user to share more about their feelings.
-        5. Provide the next question in the specified response format.
+        2. Analyze the detected moods and their confidence levels to identify the current depth level.
+        3. If the current mood is at a shallow depth (level 1 or 2), formulate a question that will help identify a MORE SPECIFIC emotion at the next depth level.
+        4. Use the wheel of emotions structure to guide your questioning toward deeper, more nuanced emotions.
+        5. Ensure the question is open-ended and encourages the user to share more details about their emotional state.
+        6. DO NOT ask direct questions like "Are you feeling X?" - instead, ask about situations, thoughts, or physical sensations that reveal deeper emotions.
+        
+        STRATEGY FOR GOING DEEPER:
+        - If at primary level (e.g., "happy"): Ask about the QUALITY or FLAVOR of that happiness (peaceful? excited? proud?)
+        - If at secondary level (e.g., "content"): Ask about specific ASPECTS or NUANCES (what makes it feel free vs joyful?)
+        - Focus on concrete examples, recent moments, or physical sensations to elicit more specific emotional language
     
         USER QUESTION AND ANSWER HISTORY:
         {qa_history}
@@ -102,13 +139,17 @@ async def get_next_question(
         DETECTED MOODS AND CONFIDENCE LEVELS:
         {mood_history}
 
-        WHEEL OF EMOTIONS:
+        WHEEL OF EMOTIONS (for reference):
         {wheel_of_emotions}
 
         RESPONSE FORMAT:
-        "<next question to ask the user to better understand their emotional state>"
+        "<next question to ask the user to drill deeper into their emotional state>"
     """
     prompt_filled = prompt.format(
+        current_depth=current_depth,
+        current_depth_name=current_depth_name,
+        target_depth=min(current_depth + 1, max_depth),
+        target_depth_name=target_depth_name,
         qa_history="\n".join([f"Q: {q}\nA: {a}" for q, a in qa_pairs]),
         mood_history="\n".join(
             [f"Mood: {mood}, Confidence: {confidence}" for mood, confidence in moods]

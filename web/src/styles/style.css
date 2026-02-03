@@ -47,6 +47,118 @@ h1 {
   background: #ff0000;
 }
 
+.agent-status {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.agent-question {
+  text-align: left;
+}
+
+.question-label {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+
+.question-text {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #111827;
+  margin-bottom: 1rem;
+}
+
+.listening-indicator {
+  font-size: 1rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.agent-analyzing {
+  text-align: center;
+}
+
+.analyzing-text {
+  font-size: 1.25rem;
+  color: #111827;
+  margin-bottom: 0.5rem;
+}
+
+.analyzing-dots {
+  font-size: 2rem;
+  color: #9ca3af;
+}
+
+.analyzing-dots span {
+  animation: blink 1.4s infinite;
+}
+
+.analyzing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.analyzing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes blink {
+  0%,
+  20%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.agent-result {
+  text-align: center;
+}
+
+.result-label {
+  font-size: 1rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+
+.result-mood {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #111827;
+  margin-bottom: 0.5rem;
+  text-transform: capitalize;
+}
+
+.result-confidence {
+  font-size: 1.25rem;
+  color: #6b7280;
+}
+
+.agent-no-result {
+  text-align: center;
+}
+
+.no-result-text {
+  font-size: 1.25rem;
+  color: #6b7280;
+}
+
+.agent-error {
+  text-align: center;
+}
+
+.error-text {
+  font-size: 1.25rem;
+  color: #ef4444;
+  font-weight: bold;
+}
+
 .transcription-list {
   max-width: 600px;
   margin: 2rem;
@@ -61,12 +173,13 @@ h1 {
 }
 
 .realtime-transcript {
-  margin-top: 0.5rem;
-  font-weight: bold;
-  color: #111827;
+  max-width: 600px;
+  margin: 1rem auto;
   padding: 1rem;
   text-align: left;
   background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .final {
@@ -75,43 +188,4 @@ h1 {
 
 .incoming {
   color: grey;
-}
-
-.update-button {
-  margin-top: 1rem;
-  padding: 0.5rem 1.5rem;
-  font-size: 1rem;
-  background: #9ca3af;
-  color: black;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.update-button:disabled {
-  background: #ff0000;
-  cursor: not-allowed;
-}
-
-#transcription-mode-toggle-container,
-#stt-provider-toggle-container {
-  margin: 1rem 0;
-}
-
-#transcription-mode-toggle-container label,
-#stt-provider-toggle-container label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  font-size: 1rem;
-  color: #111827;
-  cursor: pointer;
-}
-
-#transcription-mode-toggle-container input[type="checkbox"],
-#stt-provider-toggle-container input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
 }
