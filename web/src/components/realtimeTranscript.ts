@@ -3,6 +3,7 @@ export default class RealtimeTranscript {
   private realtimeTranscriptElement: HTMLElement;
   private final: string = "";
   private incoming: string = "";
+  private provider: string = "google";
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -10,6 +11,10 @@ export default class RealtimeTranscript {
     this.realtimeTranscriptElement.className = "realtime-transcript";
     this.realtimeTranscriptElement.style.display = "none";
     this.container.appendChild(this.realtimeTranscriptElement);
+  }
+
+  public setProvider(provider: string): void {
+    this.provider = provider;
   }
 
   public update(
@@ -21,10 +26,18 @@ export default class RealtimeTranscript {
     this.realtimeTranscriptElement.innerHTML = "";
 
     if (isFinal) {
-      this.final += newTranscript + ". ";
+      if (this.provider === "elevenlabs") {
+        this.final += newTranscript + " ";
+      } else {
+        this.final += newTranscript + ". ";
+      }
       this.incoming = "";
     } else {
-      this.incoming = this.merge(this.incoming, newTranscript, stability);
+      if (this.provider === "elevenlabs") {
+        this.incoming = newTranscript;
+      } else {
+        this.incoming = this.merge(this.incoming, newTranscript, stability);
+      }
     }
 
     this.realtimeTranscriptElement.innerHTML = `

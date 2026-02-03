@@ -9,6 +9,7 @@ export default class StreamingService {
   ) => void;
   private onProcessingComplete?: () => void;
   private onWebSocketClosed?: () => void;
+  private provider: string = "google";
 
   constructor(
     onTranscriptUpdate?: (
@@ -24,7 +25,13 @@ export default class StreamingService {
     this.onWebSocketClosed = onWebSocketClosed;
   }
 
+  public setProvider(provider: string): void {
+    console.log("[STREAMING SERVICE] Setting provider to:", provider);
+    this.provider = provider;
+  }
+
   public connect(): void {
+    console.log("[STREAMING SERVICE] Connecting with provider:", this.provider);
     if (
       this.websocket &&
       (this.websocket.readyState === WebSocket.OPEN ||
@@ -34,6 +41,13 @@ export default class StreamingService {
       return;
     }
     this.websocket = new WebSocket(WS_URL);
+
+    this.websocket.onopen = () => {
+      if (this.websocket) {
+        console.log("[FRONTEND] Sending provider config:", this.provider);
+        this.websocket.send(JSON.stringify({ provider: this.provider }));
+      }
+    };
 
     this.websocket.onclose = () => {
       if (this.onProcessingComplete) {

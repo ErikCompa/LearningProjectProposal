@@ -1,4 +1,5 @@
 import type { TranscriptionMode } from "./types";
+import type { STTProvider } from "../components/sttProviderToggle";
 import BatchService from "../services/batchService";
 import StreamingService from "../services/streamingService";
 
@@ -13,21 +14,15 @@ export default class AudioRecorder {
   private transcriptionMode: TranscriptionMode = "stream";
   private onProcessingComplete?: () => void;
   private recorderNode: AudioWorkletNode | null = null;
+  private sttProvider: STTProvider = "google";
 
   constructor(
-    onTranscriptUpdate?: (
-      transcript: string,
-      isFinal: boolean,
-      stability: number,
-    ) => void,
+    streamingService: StreamingService,
     onProcessingComplete?: () => void,
   ) {
     this.onProcessingComplete = onProcessingComplete;
     this.batchService = new BatchService();
-    this.streamingService = new StreamingService(
-      onTranscriptUpdate,
-      onProcessingComplete,
-    );
+    this.streamingService = streamingService;
   }
 
   public getRecordingStatus(): boolean {
@@ -36,6 +31,14 @@ export default class AudioRecorder {
 
   public setTranscriptionMode(mode: TranscriptionMode): void {
     this.transcriptionMode = mode;
+  }
+
+  public setSTTProvider(provider: STTProvider): void {
+    this.sttProvider = provider;
+  }
+
+  public getSTTProvider(): STTProvider {
+    return this.sttProvider;
   }
 
   public async startRecording(): Promise<void> {
@@ -99,6 +102,9 @@ export default class AudioRecorder {
       "recorder-node",
     );
     this.source.connect(this.recorderNode);
+
+    // Update provider before connecting
+    this.streamingService.setProvider(this.sttProvider);
 
     // connect to streaming service
     this.streamingService.connect();
@@ -175,8 +181,11 @@ export default class AudioRecorder {
     this.stream!.getTracks().forEach((track) => track.stop());
     this.audioContext.close();
 
-    // call batchService with lin16buffer
-    await this.batchService.processBatchAudio(this.lin16buffer);
+    // call batchService with lin16buffer and provider
+    await this.batchService.processBatchAudio(
+      this.lin16buffer,
+      this.sttProvider,
+    );
 
     if (this.onProcessingComplete) {
       this.onProcessingComplete();

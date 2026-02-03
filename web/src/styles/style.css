@@ -92,3 +92,26 @@ h1 {
   background: #ff0000;
   cursor: not-allowed;
 }
+
+#transcription-mode-toggle-container,
+#stt-provider-toggle-container {
+  margin: 1rem 0;
+}
+
+#transcription-mode-toggle-container label,
+#stt-provider-toggle-container label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  color: #111827;
+  cursor: pointer;
+}
+
+#transcription-mode-toggle-container input[type="checkbox"],
+#stt-provider-toggle-container input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}

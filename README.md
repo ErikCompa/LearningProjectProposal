@@ -82,6 +82,8 @@ cd ..
 uvicorn app.main:app
 ```
 
+or run ./rebuild.sh from root.
+
 Visit `http://localhost:8000` to access the complete application.
 
 ---
