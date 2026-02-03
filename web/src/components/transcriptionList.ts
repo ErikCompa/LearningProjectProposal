@@ -33,7 +33,28 @@ export default class TranscriptionList {
 
       const timestamp = new Date(transcription.created_at).toLocaleString();
 
-      const moods = transcription.moods
+      // Only show top 50 moods
+      const top50Moods = transcription.top_50_moods
+        ? transcription.top_50_moods
+            .map(
+              (m: { label: string; score: number }) =>
+                `${m.label} (${(m.score * 100).toFixed(0)}%)`,
+            )
+            .join(", ")
+        : "";
+
+      // Only show top 50 evidences
+      const top50Evidences = transcription.top_50_evidences
+        ? transcription.top_50_evidences
+            .map(
+              (e: { label: string; explanation: string }) =>
+                `${e.label}: ${e.explanation}`,
+            )
+            .join("; ")
+        : "";
+
+      // All moods (not just top 50)
+      const allMoods = transcription.moods
         ? transcription.moods
             .map(
               (m: { label: string; score: number }) =>
@@ -45,9 +66,10 @@ export default class TranscriptionList {
       transcriptionItem.innerHTML = `
         <div>Created at: ${timestamp}</div>
         <div>Transcript: ${transcription.transcript}</div>
-        <div>Moods: ${moods}</div>
+        <div>All Moods: ${allMoods}</div>
         <div>Mood Confidence: ${(transcription.mood_confidence * 100).toFixed(0)}%</div>
-        <div>Evidence: ${transcription.mood_evidence?.join(", ")}</div>
+        <div>Top 50% Moods: ${top50Moods}</div>
+        <div>Top 50% Evidence: ${top50Evidences}</div>
       `;
 
       this.listElement.appendChild(transcriptionItem);

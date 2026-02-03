@@ -28,7 +28,7 @@ async def get_from_firestore():
 
 
 # Send entire audio file for batch transcription
-async def batchTranscriptionStep(file: UploadFile) -> tuple[Transcript, bytes]:
+async def batch_transcription_step(file: UploadFile) -> tuple[Transcript, bytes]:
     if file.filename is None or file.filename == "":
         raise HTTPException(status_code=400, detail="No file uploaded.")
 
@@ -51,19 +51,55 @@ async def batchTranscriptionStep(file: UploadFile) -> tuple[Transcript, bytes]:
 
 
 # Send transcript to gemini for mood analysis
-async def moodAnalysisStep(transcript: Transcript) -> Mood:
-    propmt = """
-        Analyze the following transcript and give a probability to be each one of the following mood categories:
-        depressed, insomnia, unmotivated, tired, anxious, stressed, unfocused, hyperactive, angry, sad, numb, confused, happy, excited, motivated, active, calm, focused, clear headed
-        Normalize probabilities so they add up to 1.0
-        Also give an overall confidence score between 0.0 and 1.0 and evidence with explanations.
+def mood_analysis_step(transcript: Transcript) -> Mood:
+    prompt = """
+        You are an emotional analysis agent for a mental-wellbeing music application.
+
+        Your task is: 
+        Analyze the user's spoken transcript and give a probability with evidence for each of the following mood categories.
+        Normalize probabilities so they add up to 1.0.
+        Also give an overall confidence score.
+
+        IMPORTANT CONSTRAINTS:
+        - You MUST output STRICT JSON only.
+        - Do NOT invent new emotion labels.
+        
+        MOOD CATEGORIES:
+        depressed
+        insomnia
+        unmotivated
+        tired
+        anxious
+        stressed
+        unfocused
+        hyperactive
+        angry
+        sad
+        numb
+        confused
+        happy
+        excited
+        motivated
+        active
+        calm
+        focused
+        clear headed
+                
+        CONFIDENCE DEFINITION:
+        - Confidence is a number between 0 and 1.
+        - It represents how confident you are that the chosen moods and scores are appropriate and helpful for the user.
+        - This is NOT a probability and does NOT need to sum to anything.
+        - Higher confidence means clearer emotional signal and clearer intervention fit.
+        
+        USER TRANSCRIPT:
+        {transcript_text}
     """
 
-    transcript_data = transcript.model_dump()
+    prompt_filled = prompt.format(transcript_text=transcript.text)
 
     response = get_gemini_client().models.generate_content(
         model="gemini-3-pro-preview",
-        contents=[propmt, str(transcript_data)],
+        contents=[prompt_filled],
         config={
             "response_mime_type": "application/json",
             "response_json_schema": Mood.model_json_schema(),
@@ -75,27 +111,12 @@ async def moodAnalysisStep(transcript: Transcript) -> Mood:
 
     moods = Mood.model_validate_json(response.text)
     # print(f"Mood analysis step done: {moods}")
-    mood = filterMoods(moods)
 
-    return mood
-
-
-# Function to pick top 50% moods only
-def filterMoods(moods: Mood) -> Mood:
-    sorted_moods = sorted(moods.mood, key=lambda x: x[1], reverse=True)
-    filtered = []
-    total = 0.0
-    for label, score in sorted_moods:
-        if total >= 0.5:
-            break
-        filtered.append((label, score))
-        total += score
-    moods.mood = filtered
     return moods
 
 
 # Upload transcript and mood to firestore
-async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
+def upload_to_firestore_step(transcript: Transcript, mood: Mood):
     if not transcript or not mood:
         raise HTTPException(status_code=400, detail="No response data provided.")
 
@@ -104,10 +125,12 @@ async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
         {
             "created_at": firestore.SERVER_TIMESTAMP,
             "mood_confidence": mood.confidence,
-            "mood_evidence": mood.evidence,
-            "moods": [{"label": label, "score": score} for label, score in mood.mood],
+            "mood_evidence": [ev.model_dump() for ev in mood.evidence],
+            "moods": [entry.model_dump() for entry in mood.mood],
             "transcript": transcript.text,
             "uid": transcript.uid,
+            "top_50_moods": [entry.model_dump() for entry in mood.top_50_moods],
+            "top_50_evidences": [entry.model_dump() for entry in mood.top_50_evidences],
         }
     )
 
@@ -119,7 +142,7 @@ async def uploadToFirestoreStep(transcript: Transcript, mood: Mood):
 
 
 # convert LINEAR16 audio to WAV
-def lin16ToWav(audio_bytes: bytes) -> bytes:
+def linear16_to_wav(audio_bytes: bytes) -> bytes:
     audio = AudioSegment(
         data=audio_bytes,
         sample_width=2,
@@ -132,7 +155,7 @@ def lin16ToWav(audio_bytes: bytes) -> bytes:
 
 
 # convert WAV to MP3
-def wavToMp3(wav_bytes: bytes) -> bytes:
+def wav_to_mp3(wav_bytes: bytes) -> bytes:
     audio = AudioSegment.from_wav(io.BytesIO(wav_bytes))
     out_io = io.BytesIO()
     audio.export(out_io, format="mp3", bitrate="192k")
@@ -140,7 +163,7 @@ def wavToMp3(wav_bytes: bytes) -> bytes:
 
 
 # convert LINEAR16 audio to FLAC
-def lin16ToFlac(audio_bytes: bytes) -> bytes:
+def linear_16_to_flac(audio_bytes: bytes) -> bytes:
     audio = AudioSegment(data=audio_bytes, sample_width=2, frame_rate=16000, channels=1)
     out_io = io.BytesIO()
     audio.export(out_io, format="flac")
@@ -148,13 +171,13 @@ def lin16ToFlac(audio_bytes: bytes) -> bytes:
 
 
 # Upload audio file to bucket
-async def uploadToBucketStep(audio_bytes: bytes, filename: str) -> str:
+def upload_to_bucket_step(audio_bytes: bytes, filename: str) -> str:
     if not audio_bytes or not filename:
         raise HTTPException(status_code=400, detail="No audio data provided.")
 
-    # wav_bytes = lin16ToWav(audio_bytes)
-    # mp3_bytes = wavToMp3(wav_bytes)
-    flac_bytes = lin16ToFlac(audio_bytes)
+    # wav_bytes = linear16_to_wav(audio_bytes)
+    # mp3_bytes = wav_to_mp3(wav_bytes)
+    flac_bytes = linear_16_to_flac(audio_bytes)
     bucket = get_storage_client().bucket(os.getenv("BUCKET_NAME"))
 
     blob_flac = bucket.blob(f"audio/{filename}.flac")
