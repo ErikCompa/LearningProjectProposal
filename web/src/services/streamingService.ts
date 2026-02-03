@@ -1,4 +1,4 @@
-const WS_URL = import.meta.env.VITE_WS_URL;
+const WS_URL = import.meta.env.VITE_AGENT_URL;
 
 export default class StreamingService {
   private websocket: WebSocket | null = null;
