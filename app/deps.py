@@ -4,7 +4,6 @@ from elevenlabs import ElevenLabs
 from google import genai
 from google.auth import default
 from google.cloud import firestore, storage
-from google.cloud.speech_v2 import SpeechClient  # type: ignore
 
 # Clients startup and config
 credentials, project = default()
@@ -13,10 +12,6 @@ gemini_client = genai.Client(
     project=project,
     location="global",
     credentials=credentials,
-)
-
-speech_v2_client = SpeechClient(
-    client_options={"api_endpoint": "us-speech.googleapis.com"}
 )
 
 firestore_client = firestore.Client()
@@ -33,16 +28,8 @@ def get_gemini_client():
     return gemini_client
 
 
-def get_speech_v2_client():
-    return speech_v2_client
-
-
 def get_firestore_client():
     return firestore_client
-
-
-def get_project_id():
-    return project
 
 
 def get_storage_client():

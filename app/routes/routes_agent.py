@@ -1,8 +1,10 @@
 import asyncio
 import base64
 import os
+import threading
+import uuid
+from datetime import datetime
 
-# import uuid
 from elevenlabs import RealtimeAudioOptions, RealtimeEvents
 from elevenlabs.realtime.scribe import AudioFormat, CommitStrategy
 from fastapi import (
@@ -13,6 +15,8 @@ from fastapi import (
 
 from app.agent import analyze_mood, get_next_question
 from app.deps import get_elevenlabs
+from app.models import AgentSession, QAPair
+from app.services import upload_agent_audio_to_bucket, upload_agent_session
 from app.wheel_of_emotions import get_emotion_depth, get_wheel_of_emotions
 
 router = APIRouter(tags=["agent"])
@@ -146,11 +150,53 @@ async def receive_audio(
         raise
 
 
+def upload_session_in_background(
+    audio_bytes: bytearray,
+    session_id: str,
+    session_timestamp: str,
+    qa_pairs_with_moods: list[QAPair],
+    final_mood: str,
+    final_confidence: float,
+    final_depth: int,
+    question_count: int,
+):
+    """Upload session data in background thread (works for complete and incomplete sessions)"""
+    try:
+        # Only upload if we have audio data
+        if not audio_bytes:
+            print(f"[AGENT] No audio data to upload for session: {session_id}")
+            return
+
+        # Upload audio to bucket
+        audio_url = upload_agent_audio_to_bucket(
+            bytes(audio_bytes), session_id, session_timestamp
+        )
+
+        # Create session object
+        session = AgentSession(
+            session_id=session_id,
+            created_at=datetime.fromisoformat(session_timestamp),
+            qa_pairs=qa_pairs_with_moods,
+            final_mood=final_mood,
+            final_confidence=final_confidence,
+            final_depth=final_depth,
+            question_count=question_count,
+            audio_url=audio_url,
+        )
+
+        # Upload session to Firestore
+        upload_agent_session(session)
+        print(f"[AGENT] Background upload completed for session: {session_id}")
+    except Exception as e:
+        print(f"[AGENT] Background upload failed for session {session_id}: {e}")
+
+
 @router.websocket(os.getenv("AGENT_URL"))
 async def websocket_agent(websocket: WebSocket):
     await websocket.accept()
 
-    # session_id = uuid.uuid4()
+    session_id = str(uuid.uuid4())
+    session_timestamp = datetime.now().isoformat()
     audio_queue = asyncio.Queue()
     res_queue = asyncio.Queue()
     audioBytes = bytearray()
@@ -165,6 +211,8 @@ async def websocket_agent(websocket: WebSocket):
         qa_pairs: list[tuple[str, str]] = []
         # [mood, confidence]
         moods: list[tuple[str, float]] = []
+        # QAPair objects for upload
+        qa_pairs_with_moods: list[QAPair] = []
         wheel = get_wheel_of_emotions()
 
         # Start receiving audio continuously
@@ -258,6 +306,15 @@ async def websocket_agent(websocket: WebSocket):
             # go to next question
             qa_pairs.append((question, answer_transcript))
             moods.append((mood, mood_confidence))
+            qa_pairs_with_moods.append(
+                QAPair(
+                    question=question,
+                    answer=answer_transcript,
+                    mood=mood,
+                    confidence=mood_confidence,
+                    depth=current_depth,
+                )
+            )
             question_counter += 1
 
         # Determine final depth
@@ -314,4 +371,21 @@ async def websocket_agent(websocket: WebSocket):
             except Exception as e:
                 print(f"[AGENT] Error during receive_task cleanup: {e}")
 
-        # TODO upload session_id, full audio, qa_pairs, moods
+        # Upload session data in background (works for complete and incomplete sessions)
+        if "qa_pairs_with_moods" in locals():
+            upload_thread = threading.Thread(
+                target=upload_session_in_background,
+                args=(
+                    audioBytes,
+                    session_id,
+                    session_timestamp,
+                    qa_pairs_with_moods,
+                    mood if "mood" in locals() else "unknown",
+                    mood_confidence if "mood_confidence" in locals() else 0.0,
+                    final_depth if "final_depth" in locals() else 0,
+                    question_counter if "question_counter" in locals() else 0,
+                ),
+                daemon=True,
+            )
+            upload_thread.start()
+            print(f"[AGENT] Started background upload for session: {session_id}")
