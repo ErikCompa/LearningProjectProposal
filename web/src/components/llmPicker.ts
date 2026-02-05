@@ -21,7 +21,7 @@ export default class LLMPicker {
   }
 
   public getSelectedLLM(): string {
-    return this.selectElement?.value || "openai";
+    return "openai"; // Currently hardcoded to "openai"
   }
 
   public setEnabled(enabled: boolean): void {

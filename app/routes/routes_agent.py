@@ -16,11 +16,13 @@ from fastapi import (
 from fastapi.websockets import WebSocketState
 
 from app.deps import get_elevenlabs
-from app.gemini_agent import gemini_analyze_mood, gemini_get_next_question
 from app.models import AgentSession, QAMoodPair
-from app.openai_agent import openai_analyze_mood, openai_get_next_question
+from app.openai_agent import (
+    openai_analyze_conversation_mood,
+    openai_create_conversation,
+    openai_get_conversation_next_question,
+)
 from app.services import upload_agent_audio_to_bucket, upload_agent_session
-from app.wheel_of_emotions import get_emotion_depth, get_wheel_of_emotions
 
 router = APIRouter(tags=["agent"])
 
@@ -174,7 +176,6 @@ def upload_session_in_background(
     qa_pairs_with_moods: list[QAMoodPair],
     final_mood: str,
     final_confidence: float,
-    final_depth: int,
     question_count: int,
 ):
     try:
@@ -195,7 +196,6 @@ def upload_session_in_background(
             qa_pairs=qa_pairs_with_moods,
             final_mood=final_mood,
             final_confidence=final_confidence,
-            final_depth=final_depth,
             question_count=question_count,
             audio_url=audio_url,
         )
@@ -245,11 +245,12 @@ async def websocket_agent(websocket: WebSocket):
     llm = websocket.query_params.get("llm", "openai").lower()
     print(f"[AGENT] Using LLM: {llm}")
 
+    if llm == "openai":
+        conversation_id = await openai_create_conversation(session_id)
+
     try:
         mood_confidence = 0.0
         question_counter = 0
-        current_depth = 0
-        max_depth = 3
         max_questions = 5
         # [question, answer]
         qa_pairs: list[tuple[str, str]] = []
@@ -257,17 +258,16 @@ async def websocket_agent(websocket: WebSocket):
         moods: list[tuple[str, float]] = []
         # QAPair objects for upload
         qa_pairs_with_moods: list[QAMoodPair] = []
-        wheel = get_wheel_of_emotions()
 
         receive_task = asyncio.create_task(
             receive_audio(websocket, audio_queue, audioBytes, res_queue)
         )
 
         while question_counter < max_questions:
-            # check if should stop: high confidence and max depth reached
-            if mood_confidence >= 0.9 and current_depth >= max_depth:
+            # check if should stop: high confidence reached
+            if mood_confidence >= 0.9:
                 print(
-                    f"[AGENT] Stopping: High confidence ({mood_confidence}) at depth {current_depth}"
+                    f"[AGENT] Stopping: High confidence ({mood_confidence}) at confidence {mood_confidence}"
                 )
                 break
 
@@ -276,14 +276,11 @@ async def websocket_agent(websocket: WebSocket):
                 question = "Hello! How are you feeling today?"
             else:
                 try:
-                    if llm == "openai":
-                        question = await openai_get_next_question(
-                            qa_pairs, moods, current_depth, max_depth
-                        )
-                    else:
-                        question = await gemini_get_next_question(
-                            qa_pairs, moods, current_depth, max_depth
-                        )
+                    question = await openai_get_conversation_next_question(
+                        moods,
+                        mood_confidence,
+                        conversation_id,
+                    )
                     print(f"[AGENT] Generated next question: {question}")
                     print(f"[AGENT] Question type: {type(question)}")
                 except Exception as e:
@@ -305,7 +302,7 @@ async def websocket_agent(websocket: WebSocket):
                     print(f"[AGENT] Received response from res_queue: {response}")
                     if response.get("type") == "audio_playback_finished":
                         print(
-                            "[AGENT] ✓ Frontend audio playback finished, proceeding to listening"
+                            "[AGENT] Frontend audio playback finished, proceeding to listening"
                         )
                         break
                     else:
@@ -354,25 +351,11 @@ async def websocket_agent(websocket: WebSocket):
 
             # analyze response
             await websocket.send_json({"type": "analyzing"})
-            if llm == "openai":
-                mood, mood_confidence = await openai_analyze_mood(
-                    qa_pairs, moods, question, answer_transcript
-                )
-            else:
-                mood, mood_confidence = await gemini_analyze_mood(
-                    qa_pairs, moods, question, answer_transcript
-                )
 
-            # determine depth of detected emotion
-            current_depth = get_emotion_depth(mood, wheel)
-            depth_name = (
-                ["unknown", "primary", "secondary", "tertiary"][current_depth]
-                if current_depth <= 3
-                else "unknown"
-            )
-
-            print(
-                f"[AGENT] Detected mood: {mood} ({depth_name} level), confidence: {mood_confidence}"
+            mood, mood_confidence = await openai_analyze_conversation_mood(
+                question,
+                answer_transcript,
+                conversation_id,
             )
 
             # go to next question
@@ -384,36 +367,18 @@ async def websocket_agent(websocket: WebSocket):
                     answer=answer_transcript,
                     mood=mood,
                     confidence=mood_confidence,
-                    depth=current_depth,
                 )
             )
             question_counter += 1
 
-        # determine final depth
-        final_depth = get_emotion_depth(mood, wheel)
-        depth_name = (
-            ["unknown", "primary", "secondary", "tertiary"][final_depth]
-            if final_depth <= 3
-            else "unknown"
-        )
-
-        if mood_confidence >= 0.9 and final_depth >= max_depth:
-            print(
-                f"[AGENT] Mood detected with high confidence at maximum depth: {mood} ({depth_name})"
-            )
-            await websocket.send_json(
-                {"type": "result", "mood": mood, "confidence": mood_confidence}
-            )
-        elif mood_confidence >= 0.9:
-            print(
-                f"[AGENT] Mood detected with high confidence but not at max depth: {mood} ({depth_name}, depth {final_depth}/{max_depth})"
-            )
+        if mood_confidence >= 0.9:
+            print(f"[AGENT] Mood detected with high confidence: {mood}")
             await websocket.send_json(
                 {"type": "result", "mood": mood, "confidence": mood_confidence}
             )
         else:
             print(
-                f"[AGENT] Max questions reached. Best mood: {mood} ({depth_name}), confidence: {mood_confidence}"
+                f"[AGENT] Max questions reached. Best mood: {mood}, confidence: {mood_confidence}"
             )
             # send the best mood, even if not 0.9 confidence
             await websocket.send_json(
@@ -454,7 +419,6 @@ async def websocket_agent(websocket: WebSocket):
                     qa_pairs_with_moods,
                     mood if "mood" in locals() else "unknown",
                     mood_confidence if "mood_confidence" in locals() else 0.0,
-                    final_depth if "final_depth" in locals() else 0,
                     question_counter if "question_counter" in locals() else 0,
                 ),
                 daemon=True,
