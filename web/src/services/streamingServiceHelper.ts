@@ -2,7 +2,7 @@ import AgentStatus from "../components/agentStatus";
 import RealtimeTranscript from "../components/realtimeTranscript";
 import RecordButton from "../components/recordButton";
 import AudioRecorder from "../audio/audioRecorder";
-import LLMPicker from "../components/llmPicker";
+import MusicRecommendation from "../components/musicRecommendation";
 
 export class StreamingServiceHelper {
   private audioChunks: Uint8Array[] = [];
@@ -10,7 +10,7 @@ export class StreamingServiceHelper {
   private realtimeTranscript: RealtimeTranscript;
   private recordButton: RecordButton;
   private audioRecorder: AudioRecorder;
-  private llmPicker: LLMPicker;
+  private musicRecommendation: MusicRecommendation;
   private websocket: WebSocket | null = null;
 
   constructor(
@@ -18,13 +18,13 @@ export class StreamingServiceHelper {
     realtimeTranscript: RealtimeTranscript,
     recordButton: RecordButton,
     audioRecorder: AudioRecorder,
-    llmPicker: LLMPicker,
+    musicRecommendation: MusicRecommendation,
   ) {
     this.agentStatus = agentStatus;
     this.realtimeTranscript = realtimeTranscript;
     this.recordButton = recordButton;
     this.audioRecorder = audioRecorder;
-    this.llmPicker = llmPicker;
+    this.musicRecommendation = musicRecommendation;
 
     // Bind methods to preserve 'this' context
     this.onTranscriptUpdate = this.onTranscriptUpdate.bind(this);
@@ -36,6 +36,7 @@ export class StreamingServiceHelper {
     this.onNoResult = this.onNoResult.bind(this);
     this.onError = this.onError.bind(this);
     this.onWebSocketClosed = this.onWebSocketClosed.bind(this);
+    this.onMusicRecommendation = this.onMusicRecommendation.bind(this);
   }
 
   public setWebSocket(websocket: WebSocket): void {
@@ -130,16 +131,14 @@ export class StreamingServiceHelper {
 
   public onResult(mood: string, confidence: number): void {
     this.agentStatus.showResult(mood, confidence);
-    this.recordButton.setEnabled(true);
+    this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
-    this.audioRecorder.stopRecording();
   }
 
   public onNoResult(message: string): void {
     this.agentStatus.showNoResult(message);
-    this.recordButton.setEnabled(true);
+    this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
-    this.audioRecorder.stopRecording();
   }
 
   public onError(message: string): void {
@@ -150,9 +149,14 @@ export class StreamingServiceHelper {
     this.audioRecorder.stopRecording();
   }
 
+  public onMusicRecommendation(music: string): void {
+    this.musicRecommendation.show(music);
+    this.recordButton.setEnabled(true);
+    this.audioRecorder.stopRecording();
+  }
+
   public onWebSocketClosed(): void {
     this.recordButton.setEnabled(true);
     this.audioChunks = [];
-    this.llmPicker.setEnabled(true);
   }
 }

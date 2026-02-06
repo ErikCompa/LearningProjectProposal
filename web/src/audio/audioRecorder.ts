@@ -1,5 +1,4 @@
 import StreamingService from "../services/streamingService";
-import LLMPicker from "../components/llmPicker";
 
 export default class AudioRecorder {
   private isRecording: boolean = false;
@@ -8,14 +7,9 @@ export default class AudioRecorder {
   private stream: MediaStream | null = null;
   private streamingService: StreamingService;
   private recorderNode: AudioWorkletNode | null = null;
-  private llmPicker: LLMPicker | null = null;
 
   constructor(streamingService: StreamingService) {
     this.streamingService = streamingService;
-  }
-
-  public setLLMPicker(llmPicker: LLMPicker): void {
-    this.llmPicker = llmPicker;
   }
 
   public getRecordingStatus(): boolean {
@@ -73,13 +67,6 @@ export default class AudioRecorder {
       "recorder-node",
     );
     this.source.connect(this.recorderNode);
-
-    // set LLM before connecting
-    if (this.llmPicker) {
-      const selectedLLM = this.llmPicker.getSelectedLLM();
-      this.streamingService.setLLM(selectedLLM);
-      this.llmPicker.setEnabled(false);
-    }
 
     // connect to streaming service
     this.streamingService.connect();

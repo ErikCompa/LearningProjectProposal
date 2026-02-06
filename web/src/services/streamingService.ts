@@ -11,8 +11,8 @@ export default class StreamingService {
   private onNoResult?: (message: string) => void;
   private onError?: (message: string) => void;
   private onWebSocketClosed?: () => void;
+  private onMusicRecommendation?: (music: string) => void;
   private helper: any = null;
-  private selectedLLM: string = "openai";
 
   constructor(
     onTranscriptUpdate?: (transcript: string, isFinal: boolean) => void,
@@ -24,6 +24,7 @@ export default class StreamingService {
     onNoResult?: (message: string) => void,
     onError?: (message: string) => void,
     onWebSocketClosed?: () => void,
+    onMusicRecommendation?: (music: string) => void,
   ) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onQuestionAudio = onQuestionAudio;
@@ -34,19 +35,15 @@ export default class StreamingService {
     this.onNoResult = onNoResult;
     this.onError = onError;
     this.onWebSocketClosed = onWebSocketClosed;
+    this.onMusicRecommendation = onMusicRecommendation;
   }
 
   public setHelper(helper: any): void {
     this.helper = helper;
   }
 
-  public setLLM(llm: string): void {
-    this.selectedLLM = llm;
-  }
-
   public connect(): void {
-    const wsUrl = `${WS_URL}?llm=${this.selectedLLM}`;
-    this.websocket = new WebSocket(wsUrl);
+    this.websocket = new WebSocket(WS_URL);
 
     this.websocket.onopen = () => {
       console.log("WebSocket connection opened");
@@ -98,6 +95,11 @@ export default class StreamingService {
           case "error":
             if (this.onError) {
               this.onError(data.message);
+            }
+            break;
+          case "music_recommendation":
+            if (this.onMusicRecommendation) {
+              this.onMusicRecommendation(data.music);
             }
             break;
         }
