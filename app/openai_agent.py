@@ -11,7 +11,7 @@ async def openai_create_conversation(session_id: str) -> dict:
         GOAL (INPUT DEPENDENT):
         - INPUT: Question and answer pairs from a conversation with a user.
         - OUTPUT: You are to determine if the user is feeling any of the following emotions based on what they say to you in a conversation with them. 
-            You must also return a music_requested flag that indicates if the user said "play me some music".
+            You must also return a music_requested flag that indicates if the user answer contains EXACTLY "play me some music".
         OR
         - INPUT: The number of direct questions you have asked the user so far, the emotions you have detected in the user so far, and your confidence level in those emotions.
         - OUTPUT: Create direct or indirect questions to ask them to determine how they are feeling. include is_direct flag in your output to indicate if the question is direct or indirect.
@@ -34,7 +34,8 @@ async def openai_create_conversation(session_id: str) -> dict:
         - Indirect questions are questions that are not directly asking about the emotions the user is feeling, but are more open ended and allow the user to talk freely about how they are feeling and what they are going through. 
         - Direct questions are questions that are directly asking about the emotions the user is feeling, such as “are you feeling anxious?” or “are you feeling sad?”
         - If the user is not being talkative or they are not giving you any information about how they are feeling, you can ask more direct questions to determine which of the emotions in the two lists they are feeling. 
-        
+        - Should not talk about music creation unless specifically asked by the user.
+
         MUSIC SUGGESTION GUIDELINES:
         - Once you reach 5 direct questions or without asking direct questions you are at least 70 percent confident that the user is feeling at least 1 emotion, 
           you can suggest that we create some music for them based on the emotions you have detected.
