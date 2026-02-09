@@ -1,3 +1,3 @@
-from .routes_agent import router as agent_router
+from .routes_ws import router as ws_router
 
-__all__ = ["agent_router"]
+__all__ = ["ws_router"]

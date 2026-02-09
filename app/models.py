@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -8,7 +9,7 @@ class QAMoodPair(BaseModel):
     answer: str
     mood: str
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence score 0-1")
-    depth: int = Field(ge=1, le=3, description="Emotion depth level 1-3")
+    negative_emotion_percentages: Optional[dict[str, float]] = Field(default=None)
 
 
 class AgentSession(BaseModel):
@@ -19,15 +20,22 @@ class AgentSession(BaseModel):
     qa_pairs: list[QAMoodPair]
     final_mood: str
     final_confidence: float = Field(ge=0.0, le=1.0)
-    final_depth: int = Field(ge=1, le=3)
-    question_count: int = Field(ge=1, le=5)
+    total_question_count: int = Field(ge=1)
+    direct_question_count: int = Field(ge=0, le=5)
     audio_url: str
 
 
 class MoodAnalysisResult(BaseModel):
-    mood: str
+    mood: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
+    negative_emotion_percentages: Optional[dict[str, float]]
+    music_requested: bool
 
 
 class NextQuestionResult(BaseModel):
     question: str = Field(min_length=1)
+    is_direct: bool
+
+
+class MusicRecommendationResult(BaseModel):
+    song: str = Field(min_length=1)

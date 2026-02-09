@@ -5,22 +5,18 @@ import AgentStatus from "./components/agentStatus.ts";
 import AudioRecorder from "./audio/audioRecorder.ts";
 import StreamingService from "./services/streamingService";
 import { StreamingServiceHelper } from "./services/streamingServiceHelper";
-import LLMPicker from "./components/llmPicker";
+import MusicRecommendation from "./components/musicRecommendation";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <div>
     <h1>Mood Detection Agent</h1>
-    <div id="llm-picker-container"></div>
     <div id="record-button-container"></div>
     <div id="agent-status-container"></div>
     <div id="realtime-transcript-container"></div>
+    <div id="music-recommendation-container"></div>
   </div>
 `;
-
-const llmPickerContainer = document.querySelector<HTMLDivElement>(
-  "#llm-picker-container",
-)!;
 
 const recordButtonContainer = document.querySelector<HTMLDivElement>(
   "#record-button-container",
@@ -34,16 +30,22 @@ const realtimeTranscriptContainer = document.querySelector<HTMLDivElement>(
   "#realtime-transcript-container",
 )!;
 
-const llmPicker = new LLMPicker(llmPickerContainer);
+const musicRecommendationContainer = document.querySelector<HTMLDivElement>(
+  "#music-recommendation-container",
+)!;
+
 const agentStatus = new AgentStatus(agentStatusContainer);
 const realtimeTranscript = new RealtimeTranscript(realtimeTranscriptContainer);
+const musicRecommendation = new MusicRecommendation(
+  musicRecommendationContainer,
+);
 
 const helper = new StreamingServiceHelper(
   agentStatus,
   realtimeTranscript,
   null as any,
   null as any,
-  llmPicker,
+  musicRecommendation,
 );
 
 const streamingService = new StreamingService(
@@ -54,14 +56,20 @@ const streamingService = new StreamingService(
   helper.onAnalyzing,
   helper.onResult,
   helper.onNoResult,
+  helper.onEmptyTranscript,
   helper.onError,
   helper.onWebSocketClosed,
+  helper.onMusicRecommendation,
 );
 
 streamingService.setHelper(helper);
 
 const audioRecorder = new AudioRecorder(streamingService);
-audioRecorder.setLLMPicker(llmPicker);
+audioRecorder.setOnRecordingStart(() => {
+  agentStatus.clear();
+  realtimeTranscript.clear();
+  musicRecommendation.clear();
+});
 
 const recordButton = new RecordButton(recordButtonContainer, audioRecorder);
 

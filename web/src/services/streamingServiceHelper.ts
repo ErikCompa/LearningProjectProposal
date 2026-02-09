@@ -2,7 +2,7 @@ import AgentStatus from "../components/agentStatus";
 import RealtimeTranscript from "../components/realtimeTranscript";
 import RecordButton from "../components/recordButton";
 import AudioRecorder from "../audio/audioRecorder";
-import LLMPicker from "../components/llmPicker";
+import MusicRecommendation from "../components/musicRecommendation";
 
 export class StreamingServiceHelper {
   private audioChunks: Uint8Array[] = [];
@@ -10,7 +10,7 @@ export class StreamingServiceHelper {
   private realtimeTranscript: RealtimeTranscript;
   private recordButton: RecordButton;
   private audioRecorder: AudioRecorder;
-  private llmPicker: LLMPicker;
+  private musicRecommendation: MusicRecommendation;
   private websocket: WebSocket | null = null;
 
   constructor(
@@ -18,15 +18,14 @@ export class StreamingServiceHelper {
     realtimeTranscript: RealtimeTranscript,
     recordButton: RecordButton,
     audioRecorder: AudioRecorder,
-    llmPicker: LLMPicker,
+    musicRecommendation: MusicRecommendation,
   ) {
     this.agentStatus = agentStatus;
     this.realtimeTranscript = realtimeTranscript;
     this.recordButton = recordButton;
     this.audioRecorder = audioRecorder;
-    this.llmPicker = llmPicker;
+    this.musicRecommendation = musicRecommendation;
 
-    // Bind methods to preserve 'this' context
     this.onTranscriptUpdate = this.onTranscriptUpdate.bind(this);
     this.onQuestionAudio = this.onQuestionAudio.bind(this);
     this.onQuestion = this.onQuestion.bind(this);
@@ -34,8 +33,10 @@ export class StreamingServiceHelper {
     this.onAnalyzing = this.onAnalyzing.bind(this);
     this.onResult = this.onResult.bind(this);
     this.onNoResult = this.onNoResult.bind(this);
+    this.onEmptyTranscript = this.onEmptyTranscript.bind(this);
     this.onError = this.onError.bind(this);
     this.onWebSocketClosed = this.onWebSocketClosed.bind(this);
+    this.onMusicRecommendation = this.onMusicRecommendation.bind(this);
   }
 
   public setWebSocket(websocket: WebSocket): void {
@@ -61,9 +62,7 @@ export class StreamingServiceHelper {
     this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
 
-    // Play all accumulated audio chunks
     if (this.audioChunks.length > 0) {
-      // concatenate all chunks
       const totalLength = this.audioChunks.reduce(
         (sum, chunk) => sum + chunk.length,
         0,
@@ -75,14 +74,12 @@ export class StreamingServiceHelper {
         offset += chunk.length;
       }
 
-      // create and play audio
       const blob = new Blob([combined.buffer as ArrayBuffer], {
         type: "audio/mpeg",
       });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
 
-      // create promise to wait for audio to finish
       const audioFinished = new Promise<void>((resolve) => {
         audio.onended = () => {
           URL.revokeObjectURL(url);
@@ -103,11 +100,9 @@ export class StreamingServiceHelper {
         console.error("[HELPER] Error playing audio:", error);
       }
 
-      // clear chunks for next question
       this.audioChunks = [];
     }
 
-    // signal backend that audio playback finished (after audio actually ends)
     if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
       this.websocket.send(JSON.stringify({ type: "audio_playback_finished" }));
     } else {
@@ -130,16 +125,72 @@ export class StreamingServiceHelper {
 
   public onResult(mood: string, confidence: number): void {
     this.agentStatus.showResult(mood, confidence);
-    this.recordButton.setEnabled(true);
+    this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
-    this.audioRecorder.stopRecording();
   }
 
   public onNoResult(message: string): void {
     this.agentStatus.showNoResult(message);
-    this.recordButton.setEnabled(true);
+    this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
-    this.audioRecorder.stopRecording();
+  }
+
+  public async onEmptyTranscript(message: string): Promise<void> {
+    this.agentStatus.showError(message);
+    this.realtimeTranscript.clear();
+    this.recordButton.setEnabled(false);
+    this.recordButton.setSessionActive(false);
+
+    if (this.audioChunks.length > 0) {
+      const totalLength = this.audioChunks.reduce(
+        (sum, chunk) => sum + chunk.length,
+        0,
+      );
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of this.audioChunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const blob = new Blob([combined.buffer as ArrayBuffer], {
+        type: "audio/mpeg",
+      });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+
+      const audioFinished = new Promise<void>((resolve) => {
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+
+        audio.onerror = (error) => {
+          console.error(
+            "[HELPER] Empty transcript audio playback error:",
+            error,
+          );
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+      });
+
+      try {
+        await audio.play();
+        await audioFinished;
+      } catch (error) {
+        console.error("[HELPER] Error playing empty transcript audio:", error);
+      }
+
+      this.audioChunks = [];
+    }
+
+    if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+      this.websocket.send(JSON.stringify({ type: "audio_playback_finished" }));
+      console.log("[HELPER] Signaled audio playback finished for retry");
+    } else {
+      console.error("[HELPER] Cannot signal - WebSocket not open");
+    }
   }
 
   public onError(message: string): void {
@@ -150,9 +201,16 @@ export class StreamingServiceHelper {
     this.audioRecorder.stopRecording();
   }
 
+  public onMusicRecommendation(music: string): void {
+    this.musicRecommendation.show(music);
+    this.recordButton.setEnabled(true);
+    this.recordButton.setSessionActive(false);
+    this.audioRecorder.stopRecording();
+  }
+
   public onWebSocketClosed(): void {
     this.recordButton.setEnabled(true);
+    this.recordButton.setSessionActive(false);
     this.audioChunks = [];
-    this.llmPicker.setEnabled(true);
   }
 }

@@ -9,10 +9,11 @@ export default class StreamingService {
   private onAnalyzing?: () => void;
   private onResult?: (mood: string, confidence: number) => void;
   private onNoResult?: (message: string) => void;
+  private onEmptyTranscript?: (message: string) => void;
   private onError?: (message: string) => void;
   private onWebSocketClosed?: () => void;
+  private onMusicRecommendation?: (music: string) => void;
   private helper: any = null;
-  private selectedLLM: string = "openai";
 
   constructor(
     onTranscriptUpdate?: (transcript: string, isFinal: boolean) => void,
@@ -22,8 +23,10 @@ export default class StreamingService {
     onAnalyzing?: () => void,
     onResult?: (mood: string, confidence: number) => void,
     onNoResult?: (message: string) => void,
+    onEmptyTranscript?: (message: string) => void,
     onError?: (message: string) => void,
     onWebSocketClosed?: () => void,
+    onMusicRecommendation?: (music: string) => void,
   ) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onQuestionAudio = onQuestionAudio;
@@ -32,21 +35,18 @@ export default class StreamingService {
     this.onAnalyzing = onAnalyzing;
     this.onResult = onResult;
     this.onNoResult = onNoResult;
+    this.onEmptyTranscript = onEmptyTranscript;
     this.onError = onError;
     this.onWebSocketClosed = onWebSocketClosed;
+    this.onMusicRecommendation = onMusicRecommendation;
   }
 
   public setHelper(helper: any): void {
     this.helper = helper;
   }
 
-  public setLLM(llm: string): void {
-    this.selectedLLM = llm;
-  }
-
   public connect(): void {
-    const wsUrl = `${WS_URL}?llm=${this.selectedLLM}`;
-    this.websocket = new WebSocket(wsUrl);
+    this.websocket = new WebSocket(WS_URL);
 
     this.websocket.onopen = () => {
       console.log("WebSocket connection opened");
@@ -95,9 +95,19 @@ export default class StreamingService {
               this.onNoResult(data.message);
             }
             break;
+          case "empty_transcript":
+            if (this.onEmptyTranscript) {
+              this.onEmptyTranscript(data.message);
+            }
+            break;
           case "error":
             if (this.onError) {
               this.onError(data.message);
+            }
+            break;
+          case "music_recommendation":
+            if (this.onMusicRecommendation) {
+              this.onMusicRecommendation(data.music);
             }
             break;
         }
@@ -110,8 +120,10 @@ export default class StreamingService {
 
     this.websocket.onerror = (error) => {
       console.error("WebSocket error:", error);
-      if (this.onError) {
-        this.onError("WebSocket connection error");
+      if (this.websocket && this.websocket.readyState !== WebSocket.CLOSED) {
+        if (this.onError) {
+          this.onError("WebSocket connection error");
+        }
       }
     };
 
