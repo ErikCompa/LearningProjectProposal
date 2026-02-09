@@ -7,9 +7,14 @@ export default class AudioRecorder {
   private stream: MediaStream | null = null;
   private streamingService: StreamingService;
   private recorderNode: AudioWorkletNode | null = null;
+  private onRecordingStart?: () => void;
 
   constructor(streamingService: StreamingService) {
     this.streamingService = streamingService;
+  }
+
+  public setOnRecordingStart(callback: () => void): void {
+    this.onRecordingStart = callback;
   }
 
   public getRecordingStatus(): boolean {
@@ -23,6 +28,10 @@ export default class AudioRecorder {
     this.audioContext = new AudioContext({ sampleRate: 16000 });
     this.source = null;
     this.stream = null;
+
+    if (this.onRecordingStart) {
+      this.onRecordingStart();
+    }
 
     this.setRecordingStatus(true);
     await this.startStreamRecording();

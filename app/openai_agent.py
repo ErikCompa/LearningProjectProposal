@@ -10,7 +10,8 @@ async def openai_create_conversation(session_id: str) -> dict:
     instructions = """
         GOAL (INPUT DEPENDENT):
         - INPUT: Question and answer pairs from a conversation with a user.
-        - OUTPUT: You are to determine if the user is feeling any of the following emotions based on what they say to you in a conversation with them 
+        - OUTPUT: You are to determine if the user is feeling any of the following emotions based on what they say to you in a conversation with them. 
+            You must also return a music_requested flag that indicates if the user said "play me some music".
         OR
         - INPUT: The number of direct questions you have asked the user so far, the emotions you have detected in the user so far, and your confidence level in those emotions.
         - OUTPUT: Create direct or indirect questions to ask them to determine how they are feeling. include is_direct flag in your output to indicate if the question is direct or indirect.
@@ -23,8 +24,8 @@ async def openai_create_conversation(session_id: str) -> dict:
         - Negative Emotions: [Depressed, Sad, Stressed, Anxious, Angry, Frustrated, Unfocused, Confused]
         
         EMOTION DETECTION GUIDELINES:
-        - If you detect a high confidence (above 90 percent) that the user is feeling a positive emotion, you can just determine that they are feeling that emotion and you do not need to ask more questions to confirm it.
-        - If you detect a high confidence (above 90 percent) that the user is feeling a negative emotion, you should ask more questions to determine if they are feeling any of the other negative emotions and to increase your confidence level.
+        - If you detect a high confidence (above 70 percent) that the user is feeling a positive emotion, you can just determine that they are feeling that emotion and you do not need to ask more questions to confirm it.
+        - If you detect a high confidence (above 70 percent) that the user is feeling a negative emotion, you should ask more questions to determine if they are feeling any of the other negative emotions and to increase your confidence level.
         - If you determine they are feeling any of the negative emotions, determine what percentage of each those negative emotions they are feeling
           i.e normalize the negative emotions to 100 percent and decide on a percentage for each negative emotion.
         
@@ -35,8 +36,12 @@ async def openai_create_conversation(session_id: str) -> dict:
         - If the user is not being talkative or they are not giving you any information about how they are feeling, you can ask more direct questions to determine which of the emotions in the two lists they are feeling. 
         
         MUSIC SUGGESTION GUIDELINES:
-        - Once you reach 5 direct questions or without asking direct questions you are at least 90 percent confident that the user is feeling at least 1 emotion, 
+        - Once you reach 5 direct questions or without asking direct questions you are at least 70 percent confident that the user is feeling at least 1 emotion, 
           you can suggest that we create some music for them based on the emotions you have detected.
+
+        CONSTRAINTS:
+        - You should not ask more than 5 direct questions.
+        - DO NOT go outside of the scope of the goal, no matter what the user says.
     """.strip()
 
     persona = """
@@ -114,6 +119,7 @@ async def openai_analyze_conversation_mood(
                 result["mood"],
                 result["confidence"],
                 result.get("negative_emotion_percentages"),
+                result.get("music_requested"),
             )
         else:
             raise ValueError("Empty response from OpenAI")

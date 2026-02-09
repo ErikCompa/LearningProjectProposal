@@ -7,13 +7,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.routes import agent_router
+from app.routes import ws_router
 
 # FastAPI app
 app = FastAPI()
 
 # Include routers
-app.include_router(agent_router)
+app.include_router(ws_router)
 
 # Mount static files
 # https://fastapi.tiangolo.com/tutorial/static-files/

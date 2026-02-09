@@ -56,6 +56,7 @@ const streamingService = new StreamingService(
   helper.onAnalyzing,
   helper.onResult,
   helper.onNoResult,
+  helper.onEmptyTranscript,
   helper.onError,
   helper.onWebSocketClosed,
   helper.onMusicRecommendation,
@@ -64,6 +65,11 @@ const streamingService = new StreamingService(
 streamingService.setHelper(helper);
 
 const audioRecorder = new AudioRecorder(streamingService);
+audioRecorder.setOnRecordingStart(() => {
+  agentStatus.clear();
+  realtimeTranscript.clear();
+  musicRecommendation.clear();
+});
 
 const recordButton = new RecordButton(recordButtonContainer, audioRecorder);
 

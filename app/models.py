@@ -29,6 +29,7 @@ class MoodAnalysisResult(BaseModel):
     mood: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     negative_emotion_percentages: Optional[dict[str, float]]
+    music_requested: bool
 
 
 class NextQuestionResult(BaseModel):
