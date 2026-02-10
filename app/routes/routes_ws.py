@@ -15,9 +15,9 @@ from app.elevenlabs import (
     stt_elevenlabs_session,
     tts_elevenlabs_session,
 )
-from app.models import QAMoodPair
+from app.models import QAEmotionPair
 from app.openai_agent import (
-    openai_analyze_conversation_mood,
+    openai_analyze_conversation_emotion,
     openai_create_conversation,
     openai_get_conversation_next_question,
     openai_suggest_music,
@@ -108,18 +108,18 @@ async def websocket_agent(websocket: WebSocket):
     conversation_id = await openai_create_conversation(session_id)
 
     try:
-        mood = "neutral"
-        mood_confidence = 0.0
+        emotion = "neutral"
+        emotion_confidence = 0.0
         direct_question_counter = 0
         total_question_counter = 0
         initial_question = True
         reminder_asked = False
         # [question, answer]
         qa_pairs: list[tuple[str, str]] = []
-        # [mood, confidence]
-        moods: list[tuple[str, float]] = []
+        # [emotion, confidence]
+        emotions: list[tuple[str, float]] = []
         # QAPair objects for upload
-        qa_pairs_with_moods: list[QAMoodPair] = []
+        qa_pairs_with_emotions: list[QAEmotionPair] = []
 
         receive_task = asyncio.create_task(
             receive_audio(websocket, audio_queue, audioBytes, res_queue)
@@ -135,8 +135,8 @@ async def websocket_agent(websocket: WebSocket):
                 try:
                     question = await openai_get_conversation_next_question(
                         direct_question_counter,
-                        moods,
-                        mood_confidence,
+                        emotions,
+                        emotion_confidence,
                         conversation_id,
                     )
                     print(f"[WEBSOCKET] Generated next question: {question}")
@@ -148,8 +148,8 @@ async def websocket_agent(websocket: WebSocket):
                 question = question.question
 
             # check for reminder suggestion
-            music_reminder = f'It sounds like you\'re feeling {mood}, I can play you some music anytime that I think would suit your mood. Just say "Play me some music".'
-            if mood_confidence > 0.8 and not reminder_asked and len(qa_pairs) > 4:
+            music_reminder = f'It sounds like you\'re feeling {emotion}, I can play you some music anytime that I think would suit your emotions. Just say "Play me some music".'
+            if emotion_confidence > 0.8 and not reminder_asked and len(qa_pairs) > 4:
                 question += f" {music_reminder}"
                 reminder_asked = True
 
@@ -231,61 +231,71 @@ async def websocket_agent(websocket: WebSocket):
             # analyze response
             await websocket.send_json({"type": "analyzing"})
             (
-                mood,
-                mood_confidence,
+                emotion,
+                emotion_confidence,
                 negative_emotion_percentages,
                 music_requested,
-            ) = await openai_analyze_conversation_mood(
+            ) = await openai_analyze_conversation_emotion(
                 question,
                 answer_transcript,
                 conversation_id,
             )
 
-            # log mood analysis results
-            print(f"[WEBSOCKET] Mood: {mood}, Confidence: {mood_confidence}")
+            # log emotion analysis results
+            print(f"[WEBSOCKET] Emotion: {emotion}, Confidence: {emotion_confidence}")
             if negative_emotion_percentages:
                 print(
                     f"[WEBSOCKET] Negative emotion percentages: {negative_emotion_percentages}"
                 )
 
             if music_requested:
-                print("[WEBSOCKET] User requested music in mood analysis response")
+                print("[WEBSOCKET] User requested music in emotion analysis response")
                 break
 
             # go to next question
             qa_pairs.append((question, answer_transcript))
-            moods.append((mood, mood_confidence))
-            qa_pairs_with_moods.append(
-                QAMoodPair(
+            emotions.append((emotion, emotion_confidence))
+            qa_pairs_with_emotions.append(
+                QAEmotionPair(
                     question=question,
                     answer=answer_transcript,
-                    mood=mood,
-                    confidence=mood_confidence,
+                    emotion=emotion,
+                    confidence=emotion_confidence,
                     negative_emotion_percentages=negative_emotion_percentages,
                 )
             )
 
-        # Send result only if we actually analyzed the mood
-        if qa_pairs_with_moods:
-            if mood_confidence >= 0.8:
+        # Send result only if we actually analyzed the emotions
+        if qa_pairs_with_emotions:
+            if emotion_confidence >= 0.8:
                 print(
-                    f"[WEBSOCKET] High confidence reached: {mood}, confidence: {mood_confidence}"
+                    f"[WEBSOCKET] High confidence reached: {emotion}, confidence: {emotion_confidence}"
                 )
                 await websocket.send_json(
-                    {"type": "result", "mood": mood, "confidence": mood_confidence}
+                    {
+                        "type": "result",
+                        "emotion": emotion,
+                        "confidence": emotion_confidence,
+                    }
                 )
             else:
                 print(
-                    f"[WEBSOCKET] Max direct questions reached. Best mood: {mood}, confidence: {mood_confidence}"
+                    f"[WEBSOCKET] Max direct questions reached. Best emotion: {emotion}, confidence: {emotion_confidence}"
                 )
                 await websocket.send_json(
-                    {"type": "result", "mood": mood, "confidence": mood_confidence}
+                    {
+                        "type": "result",
+                        "emotion": emotion,
+                        "confidence": emotion_confidence,
+                    }
                 )
 
-        # recommend music based on mood
+        # recommend music based on emotions
         user_preferences = ["metal", "rock"]
         music = await openai_suggest_music(user_preferences, conversation_id)
-        print(f"[WEBSOCKET] Music recommendation based on mood ({mood}): {music}")
+        print(
+            f"[WEBSOCKET] Music recommendation based on emotions ({emotion}): {music}"
+        )
         await websocket.send_json({"type": "music_recommendation", "music": music.song})
 
     except WebSocketDisconnect as e:
@@ -309,16 +319,16 @@ async def websocket_agent(websocket: WebSocket):
                 print(f"[WEBSOCKET] Error during receive_task cleanup: {e}")
 
         # upload session data in background
-        if "qa_pairs_with_moods" in locals():
+        if "qa_pairs_with_emotions" in locals():
             upload_thread = threading.Thread(
                 target=upload_session_in_background,
                 args=(
                     audioBytes,
                     session_id,
                     session_timestamp,
-                    qa_pairs_with_moods,
-                    mood if "mood" in locals() else "unknown",
-                    mood_confidence if "mood_confidence" in locals() else 0.0,
+                    qa_pairs_with_emotions,
+                    emotion if "emotion" in locals() else "unknown",
+                    emotion_confidence if "emotion_confidence" in locals() else 0.0,
                     total_question_counter
                     if "total_question_counter" in locals()
                     else 0,

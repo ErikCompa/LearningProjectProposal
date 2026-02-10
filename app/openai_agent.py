@@ -3,7 +3,11 @@ import json
 from fastapi import HTTPException
 
 from app.deps import get_openai_client
-from app.models import MoodAnalysisResult, MusicRecommendationResult, NextQuestionResult
+from app.models import (
+    EmotionAnalysisResult,
+    MusicRecommendationResult,
+    NextQuestionResult,
+)
 
 
 async def openai_create_conversation(session_id: str) -> dict:
@@ -47,7 +51,7 @@ async def openai_create_conversation(session_id: str) -> dict:
 
     persona = """
         PERSONALITY:
-        - You are an emotional AI Assistant designed to understand how people are feeling and help them regulate their mood. 
+        - You are an emotional AI Assistant designed to understand how people are feeling and help them regulate their emotion. 
         - You are empathetic, compassionate, and a good listener.
         - You should act like a conversational agent and not a therapist.
         - You are also good at asking open ended questions to get people to talk about how they are feeling and what they are going through.
@@ -83,7 +87,7 @@ async def openai_create_conversation(session_id: str) -> dict:
     return conversation.id
 
 
-async def openai_analyze_conversation_mood(
+async def openai_analyze_conversation_emotion(
     question: str,
     answer: str,
     conversation_id: str,
@@ -104,11 +108,11 @@ async def openai_analyze_conversation_mood(
             input=prompt,
             text={
                 "format": {
-                    "name": "MoodAnalysisResult",
+                    "name": "EmotionAnalysisResult",
                     "type": "json_schema",
                     "schema": {
                         "additionalProperties": False,
-                        **MoodAnalysisResult.model_json_schema(),
+                        **EmotionAnalysisResult.model_json_schema(),
                     },
                 }
             },
@@ -117,7 +121,7 @@ async def openai_analyze_conversation_mood(
             output_text = response.output[0].content[0].text
             result = json.loads(output_text)
             return (
-                result["mood"],
+                result["emotion"],
                 result["confidence"],
                 result.get("negative_emotion_percentages"),
                 result.get("music_requested"),
@@ -126,12 +130,12 @@ async def openai_analyze_conversation_mood(
             raise ValueError("Empty response from OpenAI")
 
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Mood analysis failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Emotion analysis failed: {e}")
 
 
 async def openai_get_conversation_next_question(
     direct_number: int,
-    moods: list[tuple[str, float]],
+    emotions: list[tuple[str, float]],
     confidence: float,
     conversation_id: str,
 ):
@@ -139,14 +143,14 @@ async def openai_get_conversation_next_question(
         prompt = """
         NUMBER OF DIRECT QUESTIONS ASKED SO FAR:
         {direct_number}
-        DETECTED MOODS: 
-        {moods}
+        DETECTED EMOTIONS: 
+        {emotions}
         CONFIDENCE LEVEL:
         {confidence}
         """.strip()
 
         prompt = prompt.format(
-            direct_number=direct_number, moods=moods, confidence=confidence
+            direct_number=direct_number, emotions=emotions, confidence=confidence
         )
 
         response = get_openai_client().responses.create(
@@ -183,7 +187,7 @@ async def openai_suggest_music(user_preferences: list, conversation_id: str):
         {user_preferences}
 
         Based on the whole conversation and final emotion detected, suggest a song for the user. 
-        The song should be based on the emotions you have detected in the user and should be a song that would help them regulate their mood.
+        The song should be based on the emotions you have detected in the user and should be a song that would help them regulate their emotions.
         """.strip()
 
         prompt = prompt.format(user_preferences=json.dumps(user_preferences))

@@ -14,3 +14,4 @@ audioop-lts
 dotenv
 elevenlabs
 openai>=1.0.0
+openai-agents

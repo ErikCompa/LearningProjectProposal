@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from pydub import AudioSegment
 
 from app.deps import get_firestore_client, get_storage_client
-from app.models import AgentSession, QAMoodPair
+from app.models import AgentSession, QAEmotionPair
 
 
 # Background upload of agent session data and audio
@@ -14,8 +14,8 @@ def upload_session_in_background(
     audio_bytes: bytearray,
     session_id: str,
     session_timestamp: str,
-    qa_pairs_with_moods: list[QAMoodPair],
-    final_mood: str,
+    qa_pairs_with_emotions: list[QAEmotionPair],
+    final_emotion: str,
     final_confidence: float,
     total_question_count: int,
     direct_question_count: int,
@@ -34,8 +34,8 @@ def upload_session_in_background(
         session = AgentSession(
             session_id=session_id,
             created_at=datetime.fromisoformat(session_timestamp),
-            qa_pairs=qa_pairs_with_moods,
-            final_mood=final_mood,
+            qa_pairs=qa_pairs_with_emotions,
+            final_emotion=final_emotion,
             final_confidence=final_confidence,
             total_question_count=total_question_count,
             direct_question_count=direct_question_count,
