@@ -149,7 +149,7 @@ async def websocket_agent(websocket: WebSocket):
 
             # check for reminder suggestion
             music_reminder = f'It sounds like you\'re feeling {mood}, I can play you some music anytime that I think would suit your mood. Just say "Play me some music".'
-            if mood_confidence > 0.8 and not reminder_asked:
+            if mood_confidence > 0.8 and not reminder_asked and len(qa_pairs) > 4:
                 question += f" {music_reminder}"
                 reminder_asked = True
 
