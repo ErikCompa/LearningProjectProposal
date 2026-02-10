@@ -31,6 +31,7 @@ export class StreamingServiceHelper {
     this.onQuestion = this.onQuestion.bind(this);
     this.onListening = this.onListening.bind(this);
     this.onAnalyzing = this.onAnalyzing.bind(this);
+    this.onIdle = this.onIdle.bind(this);
     this.onResult = this.onResult.bind(this);
     this.onNoResult = this.onNoResult.bind(this);
     this.onEmptyTranscript = this.onEmptyTranscript.bind(this);
@@ -121,6 +122,11 @@ export class StreamingServiceHelper {
     this.realtimeTranscript.hide();
     this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
+  }
+
+  public onIdle(): void {
+    // Clear analyzing state when returning to conversation
+    this.agentStatus.clear();
   }
 
   public onResult(mood: string, confidence: number): void {

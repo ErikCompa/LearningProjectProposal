@@ -7,6 +7,7 @@ export default class StreamingService {
   private onQuestion?: (question: string) => void;
   private onListening?: () => void;
   private onAnalyzing?: () => void;
+  private onIdle?: () => void;
   private onResult?: (mood: string, confidence: number) => void;
   private onNoResult?: (message: string) => void;
   private onEmptyTranscript?: (message: string) => void;
@@ -21,6 +22,7 @@ export default class StreamingService {
     onQuestion?: (question: string) => void,
     onListening?: () => void,
     onAnalyzing?: () => void,
+    onIdle?: () => void,
     onResult?: (mood: string, confidence: number) => void,
     onNoResult?: (message: string) => void,
     onEmptyTranscript?: (message: string) => void,
@@ -33,6 +35,7 @@ export default class StreamingService {
     this.onQuestion = onQuestion;
     this.onListening = onListening;
     this.onAnalyzing = onAnalyzing;
+    this.onIdle = onIdle;
     this.onResult = onResult;
     this.onNoResult = onNoResult;
     this.onEmptyTranscript = onEmptyTranscript;
@@ -83,6 +86,11 @@ export default class StreamingService {
           case "analyzing":
             if (this.onAnalyzing) {
               this.onAnalyzing();
+            }
+            break;
+          case "idle":
+            if (this.onIdle) {
+              this.onIdle();
             }
             break;
           case "result":

@@ -54,6 +54,7 @@ const streamingService = new StreamingService(
   helper.onQuestion,
   helper.onListening,
   helper.onAnalyzing,
+  helper.onIdle,
   helper.onResult,
   helper.onNoResult,
   helper.onEmptyTranscript,

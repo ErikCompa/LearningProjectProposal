@@ -5,23 +5,19 @@ import threading
 import uuid
 from datetime import datetime
 
+from agents import Runner
 from fastapi import (
     APIRouter,
     WebSocket,
     WebSocketDisconnect,
 )
 
+from app import emotion_agent, orchestration_agent
 from app.elevenlabs import (
     stt_elevenlabs_session,
     tts_elevenlabs_session,
 )
 from app.models import QAEmotionPair
-from app.openai_agent import (
-    openai_analyze_conversation_emotion,
-    openai_create_conversation,
-    openai_get_conversation_next_question,
-    openai_suggest_music,
-)
 from app.services import (
     upload_session_in_background,
 )
@@ -94,6 +90,62 @@ async def listen_for_answer(
     return answer_transcript
 
 
+async def ask_question_and_get_response(
+    question: str,
+    websocket: WebSocket,
+    audio_queue: asyncio.Queue,
+    res_queue: asyncio.Queue,
+):
+    # Send question via TTS
+    await tts_elevenlabs_session(question, websocket)
+    await websocket.send_json({"type": "question", "text": question})
+
+    # Wait for audio playback finished
+    try:
+        while True:
+            response = await asyncio.wait_for(res_queue.get(), timeout=30.0)
+            if response.get("type") == "audio_playback_finished":
+                break
+    except asyncio.TimeoutError:
+        print("[WEBSOCKET] Timeout waiting for audio playback finished signal")
+
+    # Clear old audio from queue
+    while not audio_queue.empty():
+        try:
+            audio_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+
+    # Listen for answer
+    answer_transcript = await listen_for_answer(audio_queue, res_queue, websocket)
+
+    # Handle empty response
+    if not answer_transcript.strip():
+        retry_message = "Sorry, I didn't catch that. If you'd like me to play some music just say 'Play me some music'"
+        await tts_elevenlabs_session(retry_message, websocket)
+        await websocket.send_json(
+            {"type": "empty_transcript", "message": retry_message}
+        )
+
+        try:
+            while True:
+                response = await asyncio.wait_for(res_queue.get(), timeout=30.0)
+                if response.get("type") == "audio_playback_finished":
+                    break
+        except asyncio.TimeoutError:
+            pass
+
+        while not audio_queue.empty():
+            try:
+                audio_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        answer_transcript = await listen_for_answer(audio_queue, res_queue, websocket)
+
+    return answer_transcript
+
+
 @router.websocket(os.getenv("AGENT_URL"))
 async def websocket_agent(websocket: WebSocket):
     print("[WEBSOCKET] Client connected")
@@ -104,199 +156,260 @@ async def websocket_agent(websocket: WebSocket):
     audio_queue = asyncio.Queue()
     res_queue = asyncio.Queue()
     audioBytes = bytearray()
+    qa_pairs_with_emotions: list[
+        QAEmotionPair
+    ] = []  # Initialize here so finally block can access it
+    receive_task = None  # Initialize here so finally block can access it
 
-    conversation_id = await openai_create_conversation(session_id)
+    # Context functions that orchestration agent can use
+    async def speak_and_listen(message: str) -> str:
+        """Send TTS message and get STT response"""
+        return await ask_question_and_get_response(
+            message, websocket, audio_queue, res_queue
+        )
+
+    async def send_status(status_type: str, data: dict = None):
+        """Send status updates to frontend"""
+        payload = {"type": status_type}
+        if data:
+            payload.update(data)
+        await websocket.send_json(payload)
 
     try:
-        emotion = "neutral"
-        emotion_confidence = 0.0
-        direct_question_counter = 0
-        total_question_counter = 0
-        initial_question = True
-        reminder_asked = False
-        # [question, answer]
-        qa_pairs: list[tuple[str, str]] = []
-        # [emotion, confidence]
-        emotions: list[tuple[str, float]] = []
-        # QAPair objects for upload
-        qa_pairs_with_emotions: list[QAEmotionPair] = []
+        current_question = None  # Track the current question being asked
+        current_is_direct = False  # Track if current question is direct
 
         receive_task = asyncio.create_task(
             receive_audio(websocket, audio_queue, audioBytes, res_queue)
         )
 
+        # Build context for orchestration agent
+        context = {
+            "session_id": session_id,
+            "speak_and_listen": speak_and_listen,
+            "send_status": send_status,
+            "qa_pairs": qa_pairs_with_emotions,
+        }
+
+        # Let orchestration agent run the entire conversation
+        initial_message = 'Hello! How are you feeling today? If you say "Play me some music", I can play you a song.'
+        current_question = initial_message
+
+        # Start conversation with orchestration agent
+        user_input = await speak_and_listen(initial_message)
+        high_confidence_reached = False  # Track if we've hit 80%+ confidence
+
+        # Main conversation loop - two-step: emotion analysis then orchestration routing
         while True:
-            # get question from agent
-            if initial_question:
-                question = 'Hello! How are you feeling today? If you say "Play me some music", I can play you a song.'
-                print(f"[WEBSOCKET] Initial question: {question}")
-                initial_question = False
-            else:
-                try:
-                    question = await openai_get_conversation_next_question(
-                        direct_question_counter,
-                        emotions,
-                        emotion_confidence,
-                        conversation_id,
+            emotion_data = None  # Initialize for proper scoping
+
+            # Check for empty response - ask_question_and_get_response already retries once,
+            # so if we get empty here, it's already 2 consecutive VAD timeouts
+            if not user_input.strip():
+                print(
+                    "[WEBSOCKET] Two consecutive empty responses (VAD timeout) - ending with music recommendation"
+                )
+                # Use last known emotion if available, otherwise use neutral default
+                if qa_pairs_with_emotions:
+                    last_qa = qa_pairs_with_emotions[-1]
+                    emotion_data = {
+                        "emotion": last_qa.emotion,
+                        "confidence": last_qa.confidence,
+                        "negative_emotion_percentages": last_qa.negative_emotion_percentages,
+                    }
+                    print(
+                        f"[WEBSOCKET] Using last emotion for final recommendation: {emotion_data}"
                     )
-                    print(f"[WEBSOCKET] Generated next question: {question}")
-                except Exception as e:
-                    print(f"[WEBSOCKET] Error generating next question: {e}")
-                    raise
-                if question.is_direct:
-                    direct_question_counter += 1
-                question = question.question
+                else:
+                    # Use neutral emotion as default
+                    emotion_data = {
+                        "emotion": "Calm",
+                        "confidence": 0.5,
+                        "negative_emotion_percentages": None,
+                    }
+                    print(
+                        f"[WEBSOCKET] No previous emotions - using neutral default: {emotion_data}"
+                    )
 
-            # check for reminder suggestion
-            music_reminder = f'It sounds like you\'re feeling {emotion}, I can play you some music anytime that I think would suit your emotions. Just say "Play me some music".'
-            if emotion_confidence > 0.8 and not reminder_asked and len(qa_pairs) > 4:
-                question += f" {music_reminder}"
-                reminder_asked = True
+                # Send emotion result to frontend
+                await send_status(
+                    "result",
+                    {
+                        "mood": emotion_data["emotion"],
+                        "confidence": emotion_data["confidence"],
+                    },
+                )
 
-            total_question_counter += 1
-            # ask question
-            await tts_elevenlabs_session(question, websocket)
-            await websocket.send_json({"type": "question", "text": question})
+                # Get music recommendation using orchestration agent
+                user_input = "play me some music"
+                # Continue to music recommendation flow below
 
-            # wait for audio playback finished signal
-            try:
-                while True:
-                    response = await asyncio.wait_for(res_queue.get(), timeout=30.0)
-                    if response.get("type") == "audio_playback_finished":
-                        print(
-                            "[WEBSOCKET] Frontend audio playback finished, proceeding to listening"
-                        )
+            await send_status("analyzing")
+
+            # Check if user is requesting music - if so, skip emotion analysis and use last known emotion
+            is_music_request = "play me some music" in user_input.lower()
+
+            if is_music_request and (qa_pairs_with_emotions or emotion_data):
+                # Use emotion_data that was set above (either from last QA or VAD timeout default)
+                if not emotion_data:
+                    # Fallback: use last QA emotion
+                    last_qa = qa_pairs_with_emotions[-1]
+                    emotion_data = {
+                        "emotion": last_qa.emotion,
+                        "confidence": last_qa.confidence,
+                        "negative_emotion_percentages": last_qa.negative_emotion_percentages,
+                    }
+                print(
+                    f"[WEBSOCKET] Music request detected - using emotion: {emotion_data}"
+                )
+            else:
+                # Step 1: Analyze emotion with Emotion Agent
+                emotion_prompt = f'User message: "{user_input}"\n\nAnalyze the emotion in this message.'
+                emotion_result = await Runner.run(emotion_agent, emotion_prompt)
+                emotion_output = emotion_result.final_output
+
+                # Extract emotion data
+                emotion_data = (
+                    emotion_output
+                    if isinstance(emotion_output, dict)
+                    else emotion_output.model_dump()
+                    if hasattr(emotion_output, "model_dump")
+                    else None
+                )
+
+                print(f"[WEBSOCKET] Emotion analysis: {emotion_data}")
+
+                # Check if confidence reached 80% or higher for the first time
+                if (
+                    emotion_data
+                    and emotion_data.get("confidence", 0) >= 0.8
+                    and not high_confidence_reached
+                ):
+                    high_confidence_reached = True
+                    print(
+                        "[WEBSOCKET] High confidence reached (≥80%) - will remind user about music option"
+                    )
+
+            # Step 2: Route with Orchestration Agent
+            orchestration_prompt = f"""
+            User message: "{user_input}"
+            
+            Context:
+            - Questions asked so far: {len(qa_pairs_with_emotions)}
+            - Recent emotions: {[qa.emotion for qa in qa_pairs_with_emotions[-3:]]}
+            - High confidence reached: {high_confidence_reached}
+            """
+
+            agent_result = await Runner.run(orchestration_agent, orchestration_prompt)
+
+            # Clear analyzing status now that we have results
+            await send_status("idle")
+
+            # Debug logging
+            print(f"[WEBSOCKET] Orchestration result: {agent_result}")
+            print(
+                f"[WEBSOCKET] Last agent: {agent_result.last_agent.name if hasattr(agent_result, 'last_agent') else 'unknown'}"
+            )
+            print(f"[WEBSOCKET] Final output type: {type(agent_result.final_output)}")
+            print(f"[WEBSOCKET] Final output: {agent_result.final_output}")
+
+            # Store emotion data if we have it
+            if emotion_data:
+                print(
+                    f"[WEBSOCKET] Storing QA pair with emotion: {emotion_data.get('emotion')}"
+                )
+                qa_pairs_with_emotions.append(
+                    QAEmotionPair(
+                        question=current_question if current_question else "unknown",
+                        answer=user_input,
+                        emotion=emotion_data.get("emotion", "unknown"),
+                        confidence=emotion_data.get("confidence", 0.0),
+                        negative_emotion_percentages=emotion_data.get(
+                            "negative_emotion_percentages"
+                        ),
+                        is_direct=current_is_direct,
+                    )
+                )
+
+                # Don't send result status here - only with music recommendation
+                # await send_status(
+                #     "result",
+                #     {
+                #         "mood": emotion_data["emotion"],
+                #         "confidence": emotion_data["confidence"],
+                #     },
+                # )
+            else:
+                print("[WEBSOCKET] WARNING: No emotion data found in agent result!")
+
+            # Determine which agent produced the final output (should be conversation or music agent)
+            final_agent_name = (
+                agent_result.last_agent.name
+                if hasattr(agent_result, "last_agent")
+                else None
+            )
+            final_output = agent_result.final_output
+
+            # Handle based on which agent completed LAST (not emotion agent)
+            if final_agent_name == "Conversation Agent":
+                # Got next question
+                question_data = (
+                    final_output
+                    if isinstance(final_output, dict)
+                    else final_output.model_dump()
+                )
+                next_question = question_data.get("question")
+                is_direct = question_data.get("is_direct", False)
+
+                if next_question:
+                    print(f"[WEBSOCKET] Asking next question: {next_question}")
+                    current_question = next_question  # Track current question
+                    current_is_direct = is_direct  # Track if question is direct
+                    user_input = await speak_and_listen(next_question)
+
+                    if not user_input.strip():
                         break
-            except asyncio.TimeoutError:
-                print("[WEBSOCKET] Timeout waiting for audio playback finished signal")
-
-            # clear old audio from queue
-            while not audio_queue.empty():
-                try:
-                    audio_queue.get_nowait()
-                except asyncio.QueueEmpty:
+                else:
+                    print("[WEBSOCKET] No question provided, ending")
                     break
 
-            # listen for answer
-            answer_transcript = await listen_for_answer(
-                audio_queue, res_queue, websocket
-            )
-
-            # if empty try again
-            if not answer_transcript.strip():
-                print("[WEBSOCKET] Empty transcript received, asking user to repeat")
-
-                # Send TTS audio for the retry message
-                retry_message = "Sorry, I didn't catch that. If you'd like me to play some music just say 'Play me some music'"
-                await tts_elevenlabs_session(retry_message, websocket)
-                await websocket.send_json(
-                    {
-                        "type": "empty_transcript",
-                        "message": retry_message,
-                    }
+            elif final_agent_name == "Music Agent":
+                # Got music recommendation
+                music_data = (
+                    final_output
+                    if isinstance(final_output, dict)
+                    else final_output.model_dump()
                 )
+                music_song = music_data.get("song")
 
-                # Wait for audio playback finished signal
-                try:
-                    while True:
-                        response = await asyncio.wait_for(res_queue.get(), timeout=30.0)
-                        if response.get("type") == "audio_playback_finished":
-                            print(
-                                "[WEBSOCKET] Empty transcript audio playback finished"
-                            )
-                            break
-                except asyncio.TimeoutError:
-                    print(
-                        "[WEBSOCKET] Timeout waiting for empty transcript audio playback"
-                    )
-
-                # Clear old audio from queue
-                while not audio_queue.empty():
-                    try:
-                        audio_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
-
-                answer_transcript = await listen_for_answer(
-                    audio_queue, res_queue, websocket
-                )
-                if not answer_transcript.strip():
-                    break  # if still empty, end session
-
-            # if "play me some music"
-            if "play me some music" in answer_transcript.lower():
-                print("[WEBSOCKET] User requested music, breaking out of question loop")
+                if music_song:
+                    print(f"[WEBSOCKET] Music recommendation: {music_song}")
+                    # Send final emotion result with music recommendation
+                    if emotion_data:
+                        await send_status(
+                            "result",
+                            {
+                                "mood": emotion_data["emotion"],
+                                "confidence": emotion_data["confidence"],
+                            },
+                        )
+                    await send_status("music_recommendation", {"music": music_song})
                 break
 
-            # analyze response
-            await websocket.send_json({"type": "analyzing"})
-            (
-                emotion,
-                emotion_confidence,
-                negative_emotion_percentages,
-                music_requested,
-            ) = await openai_analyze_conversation_emotion(
-                question,
-                answer_transcript,
-                conversation_id,
-            )
-
-            # log emotion analysis results
-            print(f"[WEBSOCKET] Emotion: {emotion}, Confidence: {emotion_confidence}")
-            if negative_emotion_percentages:
+            elif final_agent_name == "Emotion Agent":
+                # Orchestration agent stopped after emotion analysis (shouldn't happen)
+                # This means it didn't complete the second handoff
                 print(
-                    f"[WEBSOCKET] Negative emotion percentages: {negative_emotion_percentages}"
+                    "[WEBSOCKET] WARNING: Orchestration agent only completed emotion analysis, no follow-up action"
                 )
-
-            if music_requested:
-                print("[WEBSOCKET] User requested music in emotion analysis response")
+                print(
+                    "[WEBSOCKET] This indicates the orchestration agent didn't perform the second handoff"
+                )
                 break
 
-            # go to next question
-            qa_pairs.append((question, answer_transcript))
-            emotions.append((emotion, emotion_confidence))
-            qa_pairs_with_emotions.append(
-                QAEmotionPair(
-                    question=question,
-                    answer=answer_transcript,
-                    emotion=emotion,
-                    confidence=emotion_confidence,
-                    negative_emotion_percentages=negative_emotion_percentages,
-                )
-            )
-
-        # Send result only if we actually analyzed the emotions
-        if qa_pairs_with_emotions:
-            if emotion_confidence >= 0.8:
-                print(
-                    f"[WEBSOCKET] High confidence reached: {emotion}, confidence: {emotion_confidence}"
-                )
-                await websocket.send_json(
-                    {
-                        "type": "result",
-                        "emotion": emotion,
-                        "confidence": emotion_confidence,
-                    }
-                )
             else:
-                print(
-                    f"[WEBSOCKET] Max direct questions reached. Best emotion: {emotion}, confidence: {emotion_confidence}"
-                )
-                await websocket.send_json(
-                    {
-                        "type": "result",
-                        "emotion": emotion,
-                        "confidence": emotion_confidence,
-                    }
-                )
-
-        # recommend music based on emotions
-        user_preferences = ["metal", "rock"]
-        music = await openai_suggest_music(user_preferences, conversation_id)
-        print(
-            f"[WEBSOCKET] Music recommendation based on emotions ({emotion}): {music}"
-        )
-        await websocket.send_json({"type": "music_recommendation", "music": music.song})
+                print(f"[WEBSOCKET] Unknown agent result: {final_agent_name}")
+                break
 
     except WebSocketDisconnect as e:
         print(f"[WEBSOCKET] Websocket disconnected: {e}")
@@ -309,7 +422,7 @@ async def websocket_agent(websocket: WebSocket):
     finally:
         # cleanup
         print("[WEBSOCKET] Cleaning up websocket session")
-        if "receive_task" in locals():
+        if receive_task:
             receive_task.cancel()
             try:
                 await receive_task
@@ -319,7 +432,9 @@ async def websocket_agent(websocket: WebSocket):
                 print(f"[WEBSOCKET] Error during receive_task cleanup: {e}")
 
         # upload session data in background
-        if "qa_pairs_with_emotions" in locals():
+        if qa_pairs_with_emotions:
+            print(f"[WEBSOCKET] Uploading {len(qa_pairs_with_emotions)} QA pairs")
+            last_qa = qa_pairs_with_emotions[-1] if qa_pairs_with_emotions else None
             upload_thread = threading.Thread(
                 target=upload_session_in_background,
                 args=(
@@ -327,16 +442,14 @@ async def websocket_agent(websocket: WebSocket):
                     session_id,
                     session_timestamp,
                     qa_pairs_with_emotions,
-                    emotion if "emotion" in locals() else "unknown",
-                    emotion_confidence if "emotion_confidence" in locals() else 0.0,
-                    total_question_counter
-                    if "total_question_counter" in locals()
-                    else 0,
-                    direct_question_counter
-                    if "direct_question_counter" in locals()
-                    else 0,
+                    last_qa.emotion if last_qa else "unknown",
+                    last_qa.confidence if last_qa else 0.0,
+                    len(qa_pairs_with_emotions),
+                    sum(1 for qa in qa_pairs_with_emotions if qa.is_direct),
                 ),
                 daemon=True,
             )
             upload_thread.start()
             print(f"[WEBSOCKET] Started background upload for session: {session_id}")
+        else:
+            print("[WEBSOCKET] No QA pairs to upload")
