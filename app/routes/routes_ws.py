@@ -148,8 +148,8 @@ async def websocket_agent(websocket: WebSocket):
                 question = question.question
 
             # check for reminder suggestion
-            music_reminder = 'Just a reminder, if you say "Play me some music", I can play you a song based on how you\'re feeling.'
-            if mood_confidence > 0.7 and not reminder_asked:
+            music_reminder = f'It sounds like you\'re feeling {mood}, I can play you some music anytime that I think would suit your mood. Just say "Play me some music".'
+            if mood_confidence > 0.8 and not reminder_asked and len(qa_pairs) > 4:
                 question += f" {music_reminder}"
                 reminder_asked = True
 
@@ -187,7 +187,7 @@ async def websocket_agent(websocket: WebSocket):
                 print("[WEBSOCKET] Empty transcript received, asking user to repeat")
 
                 # Send TTS audio for the retry message
-                retry_message = "Sorry, I didn't catch that. Could you please repeat?"
+                retry_message = "Sorry, I didn't catch that. If you'd like me to play some music just say 'Play me some music'"
                 await tts_elevenlabs_session(retry_message, websocket)
                 await websocket.send_json(
                     {
@@ -267,7 +267,7 @@ async def websocket_agent(websocket: WebSocket):
 
         # Send result only if we actually analyzed the mood
         if qa_pairs_with_moods:
-            if mood_confidence >= 0.7:
+            if mood_confidence >= 0.8:
                 print(
                     f"[WEBSOCKET] High confidence reached: {mood}, confidence: {mood_confidence}"
                 )
