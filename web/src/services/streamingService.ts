@@ -7,10 +7,23 @@ export default class StreamingService {
   private onQuestion?: (question: string) => void;
   private onListening?: () => void;
   private onAnalyzing?: () => void;
-  private onIdle?: () => void;
   private onResult?: (mood: string, confidence: number) => void;
   private onNoResult?: (message: string) => void;
   private onEmptyTranscript?: (message: string) => void;
+  private onIntermediateResult?: (
+    mood: string,
+    confidence: number,
+    negativeEmotionPercentages: Record<string, number> | null,
+  ) => void;
+  public setOnIntermediateResult(
+    callback: (
+      mood: string,
+      confidence: number,
+      negativeEmotionPercentages: Record<string, number> | null,
+    ) => void,
+  ): void {
+    this.onIntermediateResult = callback;
+  }
   private onError?: (message: string) => void;
   private onWebSocketClosed?: () => void;
   private onMusicRecommendation?: (music: string) => void;
@@ -22,26 +35,30 @@ export default class StreamingService {
     onQuestion?: (question: string) => void,
     onListening?: () => void,
     onAnalyzing?: () => void,
-    onIdle?: () => void,
     onResult?: (mood: string, confidence: number) => void,
     onNoResult?: (message: string) => void,
     onEmptyTranscript?: (message: string) => void,
     onError?: (message: string) => void,
     onWebSocketClosed?: () => void,
     onMusicRecommendation?: (music: string) => void,
+    onIntermediateResult?: (
+      mood: string,
+      confidence: number,
+      negativeEmotionPercentages: Record<string, number> | null,
+    ) => void,
   ) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onQuestionAudio = onQuestionAudio;
     this.onQuestion = onQuestion;
     this.onListening = onListening;
     this.onAnalyzing = onAnalyzing;
-    this.onIdle = onIdle;
     this.onResult = onResult;
     this.onNoResult = onNoResult;
     this.onEmptyTranscript = onEmptyTranscript;
     this.onError = onError;
     this.onWebSocketClosed = onWebSocketClosed;
     this.onMusicRecommendation = onMusicRecommendation;
+    this.onIntermediateResult = onIntermediateResult;
   }
 
   public setHelper(helper: any): void {
@@ -63,6 +80,15 @@ export default class StreamingService {
         const data = JSON.parse(event.data);
 
         switch (data.type) {
+          case "intermediate_result":
+            if (this.onIntermediateResult) {
+              this.onIntermediateResult(
+                data.mood,
+                data.confidence,
+                data.negative_emotion_percentages,
+              );
+            }
+            break;
           case "transcript":
             if (this.onTranscriptUpdate) {
               this.onTranscriptUpdate(data.transcript, data.is_final);
@@ -86,11 +112,6 @@ export default class StreamingService {
           case "analyzing":
             if (this.onAnalyzing) {
               this.onAnalyzing();
-            }
-            break;
-          case "idle":
-            if (this.onIdle) {
-              this.onIdle();
             }
             break;
           case "result":

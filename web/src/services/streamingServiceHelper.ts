@@ -7,6 +7,7 @@ import MusicRecommendation from "../components/musicRecommendation";
 export class StreamingServiceHelper {
   private audioChunks: Uint8Array[] = [];
   private agentStatus: AgentStatus;
+  private emotionGraph: any;
   private realtimeTranscript: RealtimeTranscript;
   private recordButton: RecordButton;
   private audioRecorder: AudioRecorder;
@@ -15,12 +16,14 @@ export class StreamingServiceHelper {
 
   constructor(
     agentStatus: AgentStatus,
+    emotionGraph: any,
     realtimeTranscript: RealtimeTranscript,
     recordButton: RecordButton,
     audioRecorder: AudioRecorder,
     musicRecommendation: MusicRecommendation,
   ) {
     this.agentStatus = agentStatus;
+    this.emotionGraph = emotionGraph;
     this.realtimeTranscript = realtimeTranscript;
     this.recordButton = recordButton;
     this.audioRecorder = audioRecorder;
@@ -31,13 +34,13 @@ export class StreamingServiceHelper {
     this.onQuestion = this.onQuestion.bind(this);
     this.onListening = this.onListening.bind(this);
     this.onAnalyzing = this.onAnalyzing.bind(this);
-    this.onIdle = this.onIdle.bind(this);
     this.onResult = this.onResult.bind(this);
     this.onNoResult = this.onNoResult.bind(this);
     this.onEmptyTranscript = this.onEmptyTranscript.bind(this);
     this.onError = this.onError.bind(this);
     this.onWebSocketClosed = this.onWebSocketClosed.bind(this);
     this.onMusicRecommendation = this.onMusicRecommendation.bind(this);
+    this.onIntermediateResult = this.onIntermediateResult.bind(this);
   }
 
   public setWebSocket(websocket: WebSocket): void {
@@ -122,11 +125,6 @@ export class StreamingServiceHelper {
     this.realtimeTranscript.hide();
     this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
-  }
-
-  public onIdle(): void {
-    // Clear analyzing state when returning to conversation
-    this.agentStatus.clear();
   }
 
   public onResult(mood: string, confidence: number): void {
@@ -218,5 +216,13 @@ export class StreamingServiceHelper {
     this.recordButton.setEnabled(true);
     this.recordButton.setSessionActive(false);
     this.audioChunks = [];
+  }
+
+  public onIntermediateResult(
+    mood: string,
+    confidence: number,
+    negativeEmotionPercentages: Record<string, number> | null,
+  ): void {
+    this.emotionGraph.update(mood, confidence, negativeEmotionPercentages);
   }
 }

@@ -277,6 +277,19 @@ async def websocket_agent(websocket: WebSocket):
                 current_question = next_question
                 current_is_direct = result_data.get("is_direct", False)
 
+                # send emotion results to frontend
+                await send_status(
+                    websocket,
+                    "intermediate_result",
+                    {
+                        "mood": emotion,
+                        "confidence": confidence,
+                        "negative_emotion_percentages": result_data.get(
+                            "negative_emotion_percentages"
+                        ),
+                    },
+                )
+
                 # ask next question
                 user_input = await ask_question_and_get_response(
                     next_question, websocket, audio_queue, res_queue

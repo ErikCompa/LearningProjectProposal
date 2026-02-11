@@ -33,7 +33,7 @@ export default class AgentStatus {
   public showAnalyzing(): void {
     this.statusElement.innerHTML = `
       <div class="agent-analyzing">
-        <div class="analyzing-text">Analyzing your response...</div>
+        <div class="analyzing-text">Agent is analyzing your response...</div>
         <div class="analyzing-dots">
           <span>.</span><span>.</span><span>.</span>
         </div>
