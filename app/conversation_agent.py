@@ -28,6 +28,9 @@ instructions = """
     - This reminder should only appear the FIRST time you see high confidence = True
     - DO NOT add the reminder if you've already added it in a previous question
     
+    INPUT:
+    Look at conversation context including previous Q&A pairs with detected emotions, whether high confidence has been reached, how many direct questions have been asked, and whether the music reminder has already been given.
+
     OUTPUT FORMAT:
     Return NextQuestionResult with:
     - question: The next question to ask (with optional music reminder appended)

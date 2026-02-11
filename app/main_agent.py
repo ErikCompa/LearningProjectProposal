@@ -92,19 +92,25 @@ async def ask_next_question(
 
 @function_tool
 async def recommend_music(
-    qa_pairs_json: str, final_emotion: str, final_confidence: float
+    qa_pairs_json: str,
+    final_emotion: str,
+    final_confidence: float,
 ) -> dict:
     """
     Recommend a song based on the conversation and detected emotions.
 
     Args:
-        qa_pairs_json: JSON string of Q&A pairs with emotions
-        final_emotion: The final detected emotion
-        final_confidence: Confidence in the final emotion (0-1)
+        qa_pairs_json: JSON string of Q&A pairs with emotions (can be empty "[]")
+        final_emotion: The final detected emotion (defaults to "Calm" if no previous data)
+        final_confidence: Confidence in the final emotion (defaults to 0.5 if no previous data)
 
     Returns:
-        Dict with song recommendation
+        Dict with song recommendation AND emotion data
     """
+
+    if not final_emotion or final_emotion == "":
+        final_emotion = "Calm"
+        final_confidence = 0.5
 
     context = f"""
     Final emotion: {final_emotion} (confidence: {final_confidence:.2f})
@@ -134,19 +140,22 @@ instructions = """
     YOUR WORKFLOW (follow this sequence exactly):
 
     1. Check if user's message CONTAINS the phrase "play me some music" (case-insensitive):
-    - If YES: Skip emotion analysis, go directly to step 3 (music recommendation)
-    - If NO: Continue to step 2
+       - If YES: Skip emotion analysis, go directly to step 3 (music recommendation)
+       - If NO: Continue to step 2
 
     2. For regular conversation (NOT music request):
-    - Call analyze_emotion() for the user input
-    - Pass the user's message and conversation context
-    - Remember the emotion result for your final response
-    - Then call ask_next_question() and return combined result
+       - Call analyze_emotion() for the user input
+       - Pass the user's message and conversation context
+       - Remember the emotion result for your final response
+       - Then call ask_next_question() and return combined result
 
-    3. For music requests (SKIP emotion analysis):
-    - DO NOT call analyze_emotion() - the music request itself has no emotion to analyze
-    - Call recommend_music() using the emotion data from context (last detected emotion)
-    - Return the last known emotion data AND the music recommendation
+    3. For music requests:
+       - DO NOT call analyze_emotion() - the music request itself has no emotion to analyze
+       - Call recommend_music() with the last detected emotion from context
+       - If there's no previous emotion data (empty qa_pairs_json), pass "Calm" as emotion with confidence 0.5
+       - The recommend_music() tool will return BOTH the song AND the emotion data
+       - Use ALL fields from recommend_music()'s response: emotion, confidence, song
+       - Return this combined data in your final response
 
     MUSIC REQUEST DETECTION:
     - Check if the user's message CONTAINS the phrase "play me some music" (case-insensitive)
@@ -154,31 +163,33 @@ instructions = """
     - Examples: "play me some music", "I want to play me some music", "can you play me some music please"
 
     CRITICAL: Your final response MUST include:
-    - Emotion data (either from analyze_emotion() OR from the last QA pair in context)
+    - Emotion data (either from analyze_emotion() OR from recommend_music()'s returned emotion fields)
     - EITHER a question (from ask_next_question) OR a song (from recommend_music)
 
     Example response format for question:
     {
-    "emotion": "Anxious",
-    "confidence": 0.75,
-    "negative_emotion_percentages": {...},
-    "question": "What's making you feel this way?",
-    "is_direct": false
+        "emotion": "Anxious",
+        "confidence": 0.75,
+        "question": "What's making you feel this way?",
+        "is_direct": false
     }
 
-    Example response format for music (using last known emotion):
+    Example response format for music (using emotion from recommend_music):
     {
-    "emotion": "Happy",
-    "confidence": 0.85,
-    "negative_emotion_percentages": null,
-    "song": "Artist - Song Title"
+        "emotion": "Calm",  // from recommend_music() return value
+        "confidence": 0.5,  // from recommend_music() return value
+        "song": "Wish You Were Here by Pink Floyd"  // from recommend_music() return value
     }
+
+    DEFAULT VALUES:
+    - If no previous conversation exists and music is requested, use: emotion="Calm", confidence=0.5
 
     IMPORTANT RULES:
     - Check for music request FIRST before analyzing emotion
-    - If music requested: DO NOT analyze emotion, just call recommend_music with last emotion from context
+    - If music requested: call recommend_music() and extract ALL fields from its return value
     - If not music: analyze emotion → ask next question
     - You are a coordinator - delegate work to tools but combine their results
+    - NEVER return empty strings for required fields - use the values returned by the tools
 """
 
 main_agent = Agent(
