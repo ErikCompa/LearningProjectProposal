@@ -47,6 +47,9 @@ async def analyze_emotion(
 @function_tool
 async def ask_next_question(
     qa_pairs_json: str,
+    current_user_message: str,
+    current_emotion: str,
+    current_confidence: float,
     high_confidence_reached: bool,
     direct_question_count: int,
     music_reminder_given: bool,
@@ -56,6 +59,9 @@ async def ask_next_question(
 
     Args:
         qa_pairs_json: JSON string of previous Q&A pairs with emotions
+        current_user_message: The user's message we just received
+        current_emotion: The emotion we just detected from current message
+        current_confidence: The confidence of the current emotion detection
         high_confidence_reached: Whether we've reached 80%+ confidence
         direct_question_count: Number of direct questions asked so far (max 5)
         music_reminder_given: Whether the music reminder has already been given
@@ -71,8 +77,13 @@ async def ask_next_question(
 
     Previous Q&A pairs with emotions:
     {qa_pairs_json}
+    
+    CURRENT (JUST RECEIVED):
+    User just said: "{current_user_message}"
+    Detected emotion: {current_emotion} (confidence: {current_confidence:.2f})
 
     Generate the next question to better understand the user's feelings.
+    Consider what they JUST said and the emotion we detected.
 
     IMPORTANT: If 'High confidence reached: True' AND 'Music reminder already given: False', you MUST add the music reminder to the end of your question.
     """
@@ -145,10 +156,14 @@ instructions = """
 
     2. For regular conversation (NOT music request):
        - Call analyze_emotion() for the user input
-       - Pass the user's message and conversation context
-       - Remember the emotion result for your final response
-       - Then call ask_next_question() and return combined result
-
+       - Remember the emotion result (emotion, confidence)
+       - Call ask_next_question() and pass:
+         * qa_pairs_json (previous Q&A pairs)
+         * The current user message you just received
+         * The emotion and confidence you just detected
+         * Other context flags
+       - Return combined result with emotion from analyze_emotion() and question from ask_next_question()
+    
     3. For music requests:
        - DO NOT call analyze_emotion() - the music request itself has no emotion to analyze
        - Call recommend_music() with the last detected emotion from context

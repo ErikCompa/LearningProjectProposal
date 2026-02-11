@@ -202,10 +202,9 @@ async def websocket_agent(websocket: WebSocket):
                 # force music rec
                 user_input = "play me some music"
 
-            # frontend update
             await send_status(websocket, "analyzing")
 
-            # context for main agent
+            # build existing context
             qa_pairs_json = json.dumps(
                 [
                     {
@@ -234,7 +233,6 @@ async def websocket_agent(websocket: WebSocket):
                 Process this user input according to your workflow.
             """
 
-            # main agent -> uses tool agents based on context
             agent_result = await Runner.run(main_agent, main_agent_prompt)
 
             final_output = agent_result.final_output
@@ -248,70 +246,66 @@ async def websocket_agent(websocket: WebSocket):
                 print(f"[WEBSOCKET] Unexpected output format: {type(final_output)}")
                 break
 
-            # check main agent output for q
+            # handle question response
             if result_data.get("question") is not None:
                 next_question = result_data["question"]
-                is_direct = result_data.get("is_direct", False)
-                emotion = result_data.get("emotion", "unknown")
-                confidence = result_data.get("confidence", 0.0)
-                negative_emotion_percentages = result_data.get(
-                    "negative_emotion_percentages"
-                )
+                emotion = result_data.get("emotion")
+                confidence = result_data.get("confidence")
 
                 qa_pairs.append(
                     QAEmotionPair(
-                        question=current_question if current_question else "unknown",
+                        question=current_question,
                         answer=user_input,
                         emotion=emotion,
                         confidence=confidence,
-                        negative_emotion_percentages=negative_emotion_percentages,
+                        negative_emotion_percentages=result_data.get(
+                            "negative_emotion_percentages"
+                        ),
                         is_direct=current_is_direct,
                     )
                 )
 
-                if is_direct:
+                if result_data.get("is_direct", False):
                     direct_question_count += 1
 
                 if confidence >= 0.8 and not high_confidence_reached:
                     high_confidence_reached = True
-                    print("[WEBSOCKET] High confidence reached (>=80%)")
 
                 if "Play me some music" in next_question and not music_reminder_given:
                     music_reminder_given = True
-                    print("[WEBSOCKET] Music reminder added to question")
 
                 current_question = next_question
-                current_is_direct = is_direct
+                current_is_direct = result_data.get("is_direct", False)
+
+                # ask next question
                 user_input = await ask_question_and_get_response(
                     next_question, websocket, audio_queue, res_queue
                 )
 
-            # check main agent output for music rec (conversation ends)
+            # handle music response
             elif result_data.get("song") is not None:
-                music_song = result_data["song"]
-
+                music_song = result_data.get("song")
                 emotion = result_data.get(
                     "emotion", qa_pairs[-1].emotion if qa_pairs else "Calm"
                 )
                 confidence = result_data.get(
                     "confidence", qa_pairs[-1].confidence if qa_pairs else 0.5
                 )
-                negative_emotion_percentages = result_data.get(
-                    "negative_emotion_percentages"
-                )
 
+                # final pair
                 qa_pairs.append(
                     QAEmotionPair(
-                        question=current_question if current_question else "unknown",
+                        question=current_question,
                         answer=user_input,
                         emotion=emotion,
                         confidence=confidence,
-                        negative_emotion_percentages=negative_emotion_percentages,
+                        negative_emotion_percentages=result_data.get(
+                            "negative_emotion_percentages"
+                        ),
                         is_direct=current_is_direct,
                     )
                 )
 
-                # update frontend w final results
                 await send_status(
                     websocket, "result", {"mood": emotion, "confidence": confidence}
                 )
