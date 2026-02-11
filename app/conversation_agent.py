@@ -19,18 +19,19 @@ instructions = """
     - Maximum 5 direct questions per conversation
     - Generate ONE question at a time
     - Set is_direct=true for direct emotion questions, false for open-ended
-    - Set music_requested=true ONLY if user says answer contains EXACTLY "play me some music"
     
     MUSIC REMINDER:
-    - If context shows "High confidence reached: True", add a friendly music reminder at the END of your question
-    - Example: "What's making you feel this way? By the way, if you'd like to hear a song, just say 'Play me some music'."
-    - Only include this reminder ONCE when you first see high confidence
+    - Check the context carefully for "High confidence reached: True"
+    - If you see this, you MUST add this exact reminder at the END of your question:
+      " By the way, if you'd like to hear a song, just say 'Play me some music'."
+    - Example full question: "What's making you feel this way? By the way, if you'd like to hear a song, just say 'Play me some music'."
+    - This reminder should only appear the FIRST time you see high confidence = True
+    - DO NOT add the reminder if you've already added it in a previous question
     
     OUTPUT FORMAT:
     Return NextQuestionResult with:
     - question: The next question to ask (with optional music reminder appended)
     - is_direct: boolean flag
-    - music_requested: boolean flag
 """
 
 conversation_agent = Agent(

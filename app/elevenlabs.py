@@ -13,6 +13,18 @@ from fastapi.websockets import WebSocketState
 
 from app.deps import get_elevenlabs
 
+STT_MODEL_ID = "scribe_v2_realtime"
+STT_AUDIO_FORMAT = AudioFormat.PCM_16000
+STT_SAMPLE_RATE = 16000
+VAD_SILENCE_THRESHOLD_SECS = 3.0
+VAD_THRESHOLD = 0.4
+MIN_SPEECH_DURATION_MS = 100
+MIN_SILENCE_DURATION_MS = 100
+
+TTS_VOICE_ID = "I3MrSgiotopLY33bjEX7"  # Yaron, Erik: "VWoIQlDpnFjY9kfJ11dz", Adam: "pNInz6obpgDQGcFmaJgB"
+TTS_OUTPUT_FORMAT = "mp3_22050_32"
+TTS_MODEL_ID = "eleven_multilingual_v2"
+
 
 async def stt_elevenlabs_session(
     audio_queue, res_queue, answer_transcript_container, answer_ready, websocket
@@ -23,15 +35,15 @@ async def stt_elevenlabs_session(
 
     connection = await elevenlabs.speech_to_text.realtime.connect(
         RealtimeAudioOptions(
-            model_id="scribe_v2_realtime",
-            audio_format=AudioFormat.PCM_16000,
-            sample_rate=16000,
+            model_id=STT_MODEL_ID,
+            audio_format=STT_AUDIO_FORMAT,
+            sample_rate=STT_SAMPLE_RATE,
             include_timestamps=True,
             commit_strategy=CommitStrategy.VAD,
-            vad_silence_threshold_secs=3.0,
-            vad_threshold=0.4,
-            min_speech_duration_ms=100,
-            min_silence_duration_ms=100,
+            vad_silence_threshold_secs=VAD_SILENCE_THRESHOLD_SECS,
+            vad_threshold=VAD_THRESHOLD,
+            min_speech_duration_ms=MIN_SPEECH_DURATION_MS,
+            min_silence_duration_ms=MIN_SILENCE_DURATION_MS,
         )
     )
 
@@ -87,7 +99,7 @@ async def stt_elevenlabs_session(
                 if chunk is None:
                     break
 
-                # rate limit to prevent queue overflow
+                # rate limit to prevent elevenlabs error
                 current_time = asyncio.get_event_loop().time()
                 time_since_last = current_time - last_send_time
                 if time_since_last < min_interval:
@@ -123,10 +135,10 @@ async def tts_elevenlabs_session(text: str, websocket: WebSocket):
     print(f"[TTS] Sending text to ElevenLabs TTS: {text}")
     try:
         response = get_elevenlabs().text_to_speech.stream(
-            voice_id="I3MrSgiotopLY33bjEX7",  # Yaron: I3MrSgiotopLY33bjEX7, Erik: VWoIQlDpnFjY9kfJ11dz, Adam: pNInz6obpgDQGcFmaJgB
-            output_format="mp3_22050_32",
+            voice_id=TTS_VOICE_ID,
+            output_format=TTS_OUTPUT_FORMAT,
             text=text,
-            model_id="eleven_multilingual_v2",
+            model_id=TTS_MODEL_ID,
             voice_settings=VoiceSettings(
                 stability=1.0,
                 similarity_boost=1.0,
