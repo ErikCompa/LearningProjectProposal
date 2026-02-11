@@ -1,6 +1,6 @@
 from agents import Agent, AgentOutputSchema, function_tool
 
-from app.models import MusicRecommendationResult
+from app.models import MusicAgentResult
 
 instructions = """
     You are an expert music recommendation agent.
@@ -30,7 +30,7 @@ music_agent = Agent(
     name="Music Agent",
     instructions=instructions,
     model="gpt-5.2",
-    output_type=AgentOutputSchema(MusicRecommendationResult, strict_json_schema=False),
+    output_type=AgentOutputSchema(MusicAgentResult, strict_json_schema=False),
     tools=[get_user_preferences],
     handoff_description="Transfer to this agent when the user explicitly requests music by saying 'play me some music'.",
 )

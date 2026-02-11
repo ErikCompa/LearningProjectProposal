@@ -1,6 +1,6 @@
 from agents import Agent, AgentOutputSchema
 
-from app.models import EmotionAnalysisResult
+from app.models import EmotionAgentResult
 
 instructions = """
     You are an emotion detection agent. Analyze the user's emotional state from their message.
@@ -27,6 +27,6 @@ emotion_agent = Agent(
     name="Emotion Agent",
     instructions=instructions,
     model="gpt-5.2",
-    output_type=AgentOutputSchema(EmotionAnalysisResult, strict_json_schema=False),
+    output_type=AgentOutputSchema(EmotionAgentResult, strict_json_schema=False),
     tools=[],
 )

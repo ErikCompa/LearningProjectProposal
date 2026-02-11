@@ -5,9 +5,9 @@ from pydantic import ValidationError
 
 from app.models import (
     AgentSession,
-    EmotionAnalysisResult,
-    MusicRecommendationResult,
-    NextQuestionResult,
+    ConversationAgentResult,
+    EmotionAgentResult,
+    MusicAgentResult,
     QAEmotionPair,
 )
 
@@ -266,7 +266,7 @@ class TestMoodAnalysisResult:
 
     def test_valid_mood_analysis(self):
         """Test valid MoodAnalysisResult creation"""
-        result = EmotionAnalysisResult(
+        result = EmotionAgentResult(
             emotion="happy",
             confidence=0.85,
             negative_emotion_percentages=None,
@@ -279,7 +279,7 @@ class TestMoodAnalysisResult:
 
     def test_with_negative_emotions(self):
         """Test with negative emotion percentages"""
-        result = EmotionAnalysisResult(
+        result = EmotionAgentResult(
             emotion="sad",
             confidence=0.9,
             negative_emotion_percentages={"sadness": 0.7, "anxiety": 0.3},
@@ -294,7 +294,7 @@ class TestNextQuestionResult:
 
     def test_valid_next_question(self):
         """Test valid NextQuestionResult creation"""
-        result = NextQuestionResult(
+        result = ConversationAgentResult(
             question="How are you feeling today?", is_direct=True
         )
         assert result.question == "How are you feeling today?"
@@ -302,7 +302,9 @@ class TestNextQuestionResult:
 
     def test_indirect_question(self):
         """Test indirect question"""
-        result = NextQuestionResult(question="Tell me about your day", is_direct=False)
+        result = ConversationAgentResult(
+            question="Tell me about your day", is_direct=False
+        )
         assert result.is_direct is False
 
 
@@ -311,10 +313,10 @@ class TestMusicRecommendationResult:
 
     def test_valid_recommendation(self):
         """Test valid MusicRecommendationResult creation"""
-        result = MusicRecommendationResult(song="Happy by Pharrell Williams")
+        result = MusicAgentResult(song="Happy by Pharrell Williams")
         assert result.song == "Happy by Pharrell Williams"
 
     def test_empty_song_invalid(self):
         """Test empty song name is invalid"""
         with pytest.raises(ValidationError):
-            MusicRecommendationResult(song="")
+            MusicAgentResult(song="")

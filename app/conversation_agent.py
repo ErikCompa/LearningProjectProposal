@@ -1,6 +1,6 @@
 from agents import Agent, AgentOutputSchema
 
-from app.models import NextQuestionResult
+from app.models import ConversationAgentResult
 
 instructions = """
     You are an expert conversation agent.
@@ -38,7 +38,7 @@ conversation_agent = Agent(
     name="Conversation Agent",
     instructions=instructions,
     model="gpt-5.2",
-    output_type=AgentOutputSchema(NextQuestionResult, strict_json_schema=False),
+    output_type=AgentOutputSchema(ConversationAgentResult, strict_json_schema=False),
     tools=[],
     handoffs=[],
     handoff_description="Transfer to this agent to continue the conversation and ask the next question about the user's emotional state.",

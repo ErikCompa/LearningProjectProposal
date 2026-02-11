@@ -17,7 +17,6 @@ class QAEmotionPair(BaseModel):
 
 class AgentSession(BaseModel):
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
-
     session_id: str
     created_at: datetime
     qa_pairs: list[QAEmotionPair]
@@ -28,18 +27,18 @@ class AgentSession(BaseModel):
     audio_url: str
 
 
-class EmotionAnalysisResult(BaseModel):
+class EmotionAgentResult(BaseModel):
     emotion: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     negative_emotion_percentages: Optional[dict[str, float]]
 
 
-class NextQuestionResult(BaseModel):
+class ConversationAgentResult(BaseModel):
     question: str = Field(min_length=1)
     is_direct: bool
 
 
-class MusicRecommendationResult(BaseModel):
+class MusicAgentResult(BaseModel):
     song: str = Field(min_length=1)
 
 
