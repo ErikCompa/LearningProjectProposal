@@ -237,9 +237,6 @@ async def websocket_agent(websocket: WebSocket):
             # main agent -> uses tool agents based on context
             agent_result = await Runner.run(main_agent, main_agent_prompt)
 
-            # frontend update
-            await send_status(websocket, "idle")
-
             final_output = agent_result.final_output
             print(f"[WEBSOCKET] Main agent output: {final_output}")
 
