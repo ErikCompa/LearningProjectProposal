@@ -31,8 +31,8 @@ export default class EmotionGraph {
     ];
     this.emotionGraphElement.innerHTML = `
       <div class="emotion-graph-content">
-        <div class="result-label">Current detected moods:</div>
-        <div class="result-mood">${mood}</div>
+        <div class="result-title">Analysis Breakdown</div>
+        <div class="result-label">Current detected mood: <span class="result-mood">${mood}</span></div>
         <div class="result-confidence">Confidence: ${(confidence * 100).toFixed(0)}%</div>
         <div class="emotion-chart-container">
           <canvas id="emotion-bar-chart" width="400" height="250"></canvas>

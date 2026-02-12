@@ -127,8 +127,8 @@ export class StreamingServiceHelper {
     this.recordButton.setSessionActive(false);
   }
 
-  public onResult(mood: string, confidence: number): void {
-    this.agentStatus.showResult(mood, confidence);
+  public onResult(): void {
+    this.agentStatus.showResult();
     this.recordButton.setEnabled(false);
     this.recordButton.setSessionActive(false);
   }
