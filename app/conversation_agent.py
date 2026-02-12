@@ -21,12 +21,11 @@ instructions = """
     - Set is_direct=true for direct emotion questions, false for open-ended
     
     MUSIC REMINDER:
-    - Check the context carefully for "High confidence reached: True"
-    - If you see this, you MUST add this exact reminder at the END of your question:
+    - If the context shows BOTH: (1) confidence is 80% or higher, AND (2) "High confidence reached" is False, then you MUST append this exact reminder to the END of your question:
       " By the way, if you'd like to hear a song, just say 'Play me some music'."
-    - Example full question: "What's making you feel this way? By the way, if you'd like to hear a song, just say 'Play me some music'."
-    - This reminder should only appear the FIRST time you see high confidence = True
-    - DO NOT add the reminder if you've already added it in a previous question
+    - Example: "What's making you feel this way? By the way, if you'd like to hear a song, just say 'Play me some music'."
+    - Only add this reminder the FIRST time high confidence is reached (only if incoming confidence is 80% or higher and "High confidence reached" is False).
+    - Never add the reminder if it was already included in a previous question (high confidence reached is True).
     
     INPUT:
     Look at conversation context including previous Q&A pairs with detected emotions, whether high confidence has been reached, how many direct questions have been asked, and whether the music reminder has already been given.
