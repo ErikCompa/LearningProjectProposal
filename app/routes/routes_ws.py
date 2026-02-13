@@ -270,9 +270,13 @@ async def websocket_agent(websocket: WebSocket):
 
                 if confidence >= 0.8 and not high_confidence_reached:
                     high_confidence_reached = True
+                    print(
+                        "[WEBSOCKET] High confidence (>= 0.8) reached for the first time."
+                    )
 
                 if "Play me some music" in next_question and not music_reminder_given:
                     music_reminder_given = True
+                    print("[WEBSOCKET] Music reminder has been given to the user.")
 
                 current_question = next_question
                 current_is_direct = result_data.get("is_direct", False)
