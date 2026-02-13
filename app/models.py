@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,25 +27,13 @@ class AgentSession(BaseModel):
     audio_url: str
 
 
-class EmotionAgentResult(BaseModel):
+class ConversationAgentResult(BaseModel):
+    question: str = Field(min_length=1)
+    is_direct: bool
     emotion: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     negative_emotion_percentages: Optional[dict[str, float]]
 
 
-class ConversationAgentResult(BaseModel):
-    question: str = Field(min_length=1)
-    is_direct: bool
-
-
 class MusicAgentResult(BaseModel):
     song: str = Field(min_length=1)
-
-
-class MainAgentResult(BaseModel):
-    emotion: str = Field(min_length=1)
-    confidence: float = Field(ge=0.0, le=1.0)
-    negative_emotion_percentages: Optional[dict[str, float]] = None
-    question: Optional[str] = None
-    is_direct: Optional[bool] = None
-    song: Optional[str] = None

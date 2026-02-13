@@ -14,8 +14,8 @@ app.innerHTML = `
     <h1>MyWayv Agent</h1>
     <div id="record-button-container"></div>
     <div id="agent-status-container"></div>
-    <div id="emotion-graph-container"></div>
     <div id="realtime-transcript-container"></div>
+    <div id="emotion-graph-container"></div>
     <div id="music-recommendation-container"></div>
   </div>
 `;

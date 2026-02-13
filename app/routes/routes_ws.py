@@ -233,7 +233,14 @@ async def websocket_agent(websocket: WebSocket):
                 Process this user input according to your workflow.
             """
 
-            agent_result = await Runner.run(main_agent, main_agent_prompt)
+            agent_result = Runner.run_streamed(main_agent, main_agent_prompt)
+
+            async for chunk in agent_result.stream_events():
+                print("\n[WEBSOCKET CHUNK]")
+                try:
+                    print(json.dumps(chunk, default=str, indent=2))
+                except TypeError:
+                    print(str(chunk))
 
             final_output = agent_result.final_output
             print(f"[WEBSOCKET] Main agent output: {final_output}")
