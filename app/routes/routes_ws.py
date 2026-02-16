@@ -11,6 +11,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from openai.types.responses import ResponseTextDeltaEvent
 
 from app import main_agent
 from app.elevenlabs import (
@@ -235,15 +236,37 @@ async def websocket_agent(websocket: WebSocket):
 
             agent_result = Runner.run_streamed(main_agent, main_agent_prompt)
 
-            async for chunk in agent_result.stream_events():
-                print("\n[WEBSOCKET CHUNK]")
-                try:
-                    print(json.dumps(chunk, default=str, indent=2))
-                except TypeError:
-                    print(str(chunk))
+            async for event in agent_result.stream_events():
+                if event.type == "raw_response_event" and isinstance(
+                    event.data, ResponseTextDeltaEvent
+                ):
+                    # update frontend with stream responses
+                    delta = event.data.delta
+                    print(delta, end="", flush=True)
+                    try:
+                        await send_status(
+                            websocket, "agent_stream_delta", {"delta": delta}
+                        )
+                    except Exception as e:
+                        print(f"[WEBSOCKET] Failed to send stream delta: {e}")
 
+            # streaming finished
             final_output = agent_result.final_output
-            print(f"[WEBSOCKET] Main agent output: {final_output}")
+            if isinstance(final_output, dict):
+                final_payload = final_output
+            elif hasattr(final_output, "model_dump"):
+                final_payload = final_output.model_dump()
+            else:
+                final_payload = {"text": str(final_output)}
+
+            try:
+                await send_status(
+                    websocket, "agent_stream_end", {"final": final_payload}
+                )
+            except Exception as e:
+                print(f"[WEBSOCKET] Failed to send stream end: {e}")
+
+            print(f"\n[WEBSOCKET] Main agent output: {final_output}")
 
             if isinstance(final_output, dict):
                 result_data = final_output

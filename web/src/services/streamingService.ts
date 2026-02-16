@@ -28,6 +28,12 @@ export default class StreamingService {
   private onWebSocketClosed?: () => void;
   private onMusicRecommendation?: (music: string) => void;
   private helper: any = null;
+  private onAgentStream?: (payload: any, isFinal: boolean) => void;
+  public setOnAgentStream(
+    callback: (payload: any, isFinal: boolean) => void,
+  ): void {
+    this.onAgentStream = callback;
+  }
 
   constructor(
     onTranscriptUpdate?: (transcript: string, isFinal: boolean) => void,
@@ -80,6 +86,12 @@ export default class StreamingService {
         const data = JSON.parse(event.data);
 
         switch (data.type) {
+          case "agent_stream_delta":
+            if (this.onAgentStream) this.onAgentStream(data.delta, false);
+            break;
+          case "agent_stream_end":
+            if (this.onAgentStream) this.onAgentStream(data.final, true);
+            break;
           case "intermediate_result":
             if (this.onIntermediateResult) {
               this.onIntermediateResult(

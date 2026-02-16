@@ -13,6 +13,9 @@ export class StreamingServiceHelper {
   private audioRecorder: AudioRecorder;
   private musicRecommendation: MusicRecommendation;
   private websocket: WebSocket | null = null;
+  private currentAgentPartial: string = "";
+  private jsonBuffer: string = "";
+  private pendingQuestion: string | null = null;
 
   constructor(
     agentStatus: AgentStatus,
@@ -41,6 +44,7 @@ export class StreamingServiceHelper {
     this.onWebSocketClosed = this.onWebSocketClosed.bind(this);
     this.onMusicRecommendation = this.onMusicRecommendation.bind(this);
     this.onIntermediateResult = this.onIntermediateResult.bind(this);
+    this.onAgentStream = this.onAgentStream.bind(this);
   }
 
   public setWebSocket(websocket: WebSocket): void {
@@ -60,6 +64,12 @@ export class StreamingServiceHelper {
   }
 
   public async onQuestion(question: string): Promise<void> {
+    if (this.pendingQuestion && this.pendingQuestion !== question) {
+      return;
+    }
+
+    this.pendingQuestion = null;
+
     this.agentStatus.showQuestion(question);
     this.realtimeTranscript.clear();
     this.realtimeTranscript.show();
@@ -224,5 +234,100 @@ export class StreamingServiceHelper {
     negativeEmotionPercentages: Record<string, number> | null,
   ): void {
     this.emotionGraph.update(mood, confidence, negativeEmotionPercentages);
+  }
+
+  public onAgentStream(payload: any, isFinal: boolean): void {
+    if (!isFinal) {
+      const deltaText =
+        typeof payload === "string"
+          ? payload
+          : (payload?.delta ?? String(payload ?? ""));
+
+      const looksLikeJsonFragment =
+        deltaText.trim().startsWith("{") ||
+        this.jsonBuffer.length > 0 ||
+        deltaText.includes('"question"') ||
+        deltaText.includes('"song"') ||
+        deltaText.includes('":');
+
+      if (looksLikeJsonFragment) {
+        this.jsonBuffer += deltaText;
+        try {
+          const parsed = JSON.parse(this.jsonBuffer);
+          if (parsed?.question) {
+            this.agentStatus.showQuestion(parsed.question);
+          } else if (parsed?.song) {
+            this.musicRecommendation.show(parsed.song);
+            this.agentStatus.clear();
+          }
+        } catch (e) {
+          const match = this.jsonBuffer.match(/"question"\s*:\s*"([^"]*)$/);
+          if (match) {
+            this.agentStatus.showQuestion(match[1]);
+          }
+          const sMatch = this.jsonBuffer.match(/"song"\s*:\s*"([^"]*)$/);
+          if (sMatch && sMatch[1].length > 2) {
+            this.musicRecommendation.show(sMatch[1]);
+            this.agentStatus.clear();
+          }
+        }
+        return;
+      }
+
+      this.currentAgentPartial += String(deltaText || "");
+      console.debug(
+        "[HELPER] appending delta -> currentAgentPartial:",
+        this.currentAgentPartial,
+      );
+      this.agentStatus.showQuestion(this.currentAgentPartial);
+      return;
+    }
+
+    let finalPayload: any = payload;
+    console.debug(
+      "[HELPER] final payload before parse:",
+      finalPayload,
+      "typeof:",
+      typeof finalPayload,
+    );
+    if (typeof finalPayload === "string") {
+      try {
+        finalPayload = JSON.parse(finalPayload);
+        console.debug("[HELPER] final payload parsed JSON:", finalPayload);
+      } catch {
+        console.debug("[HELPER] final payload not JSON, using raw string");
+      }
+    }
+
+    this.currentAgentPartial = "";
+    this.jsonBuffer = "";
+
+    if (finalPayload && typeof finalPayload === "object") {
+      if ("song" in finalPayload && finalPayload.song) {
+        this.musicRecommendation.show(finalPayload.song);
+        this.agentStatus.clear();
+        return;
+      }
+      if ("question" in finalPayload && finalPayload.question) {
+        this.agentStatus.showQuestion(finalPayload.question);
+
+        this.pendingQuestion = finalPayload.question;
+
+        if (
+          "emotion" in finalPayload &&
+          typeof finalPayload.confidence === "number"
+        ) {
+          this.onIntermediateResult(
+            finalPayload.emotion,
+            finalPayload.confidence,
+            finalPayload.negative_emotion_percentages || null,
+          );
+        }
+
+        return;
+      }
+    }
+
+    this.agentStatus.showQuestion(String(finalPayload));
   }
 }

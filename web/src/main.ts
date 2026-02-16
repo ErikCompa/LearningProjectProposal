@@ -73,6 +73,8 @@ const streamingService = new StreamingService(
 
 streamingService.setHelper(helper);
 
+streamingService.setOnAgentStream(helper.onAgentStream.bind(helper));
+
 const audioRecorder = new AudioRecorder(streamingService);
 audioRecorder.setOnRecordingStart(() => {
   agentStatus.clear();
