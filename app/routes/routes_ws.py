@@ -2,10 +2,11 @@ import asyncio
 import json
 import os
 import threading
+import time
 import uuid
 from datetime import datetime
 
-from agents import Runner
+from agents import ItemHelpers, Runner
 from fastapi import (
     APIRouter,
     WebSocket,
@@ -234,15 +235,37 @@ async def websocket_agent(websocket: WebSocket):
                 Process this user input according to your workflow.
             """
 
+            print("[WEBSOCKET] Run starting")
+
+            # timing: per-run measurements
+            run_start = time.perf_counter()
+            first_agent_update_time = None
+            current_agent = None
+            agent_update_time: dict[str, float] = {}
+            agent_first_raw_seen: dict[str, bool] = {}
+
             agent_result = Runner.run_streamed(main_agent, main_agent_prompt)
 
             async for event in agent_result.stream_events():
+                # update frontend with stream results
                 if event.type == "raw_response_event" and isinstance(
                     event.data, ResponseTextDeltaEvent
                 ):
-                    # update frontend with stream responses
                     delta = event.data.delta
                     print(delta, end="", flush=True)
+                    # record time from last agent update to first raw response for that agent
+                    if current_agent and not agent_first_raw_seen.get(
+                        current_agent, False
+                    ):
+                        t_first_raw = time.perf_counter()
+                        delay = t_first_raw - agent_update_time.get(
+                            current_agent, run_start
+                        )
+                        print(
+                            f"\n[WEBSOCKET] Time from agent '{current_agent}' update to first raw response: {delay:.3f}s"
+                        )
+                        agent_first_raw_seen[current_agent] = True
+
                     try:
                         await send_status(
                             websocket, "agent_stream_delta", {"delta": delta}
@@ -250,7 +273,44 @@ async def websocket_agent(websocket: WebSocket):
                     except Exception as e:
                         print(f"[WEBSOCKET] Failed to send stream delta: {e}")
 
+                # agent handoff
+                elif event.type == "agent_updated_stream_event":
+                    new_agent = getattr(event, "new_agent", None) or getattr(
+                        event, "data", None
+                    )
+                    agent_name = getattr(new_agent, "name", str(new_agent))
+                    t_now = time.perf_counter()
+
+                    # time from run start to first agent switch
+                    if first_agent_update_time is None:
+                        first_agent_update_time = t_now
+                        time_to_first_switch = first_agent_update_time - run_start
+                        print(f"[WEBSOCKET] Agent updated: {agent_name}")
+                        print(
+                            f"[WEBSOCKET] Time from run start to first agent switch: {time_to_first_switch:.3f}s"
+                        )
+                    else:
+                        # time from previous agent update to this agent update (handoff)
+                        if current_agent and current_agent in agent_update_time:
+                            handoff_delay = t_now - agent_update_time[current_agent]
+                            print(f"[WEBSOCKET] Agent updated: {agent_name}")
+                            print(
+                                f"[WEBSOCKET] Time from agent '{current_agent}' -> '{agent_name}': {handoff_delay:.3f}s"
+                            )
+                        else:
+                            print(f"[WEBSOCKET] Agent updated: {agent_name}")
+
+                    # record this agent's update time and reset its first-raw flag
+                    agent_update_time[agent_name] = t_now
+                    agent_first_raw_seen[agent_name] = False
+                    current_agent = agent_name
+                else:
+                    continue
+
             # streaming finished
+            run_end = time.perf_counter()
+            run_duration = run_end - run_start
+
             final_output = agent_result.final_output
             if isinstance(final_output, dict):
                 final_payload = final_output
@@ -259,14 +319,8 @@ async def websocket_agent(websocket: WebSocket):
             else:
                 final_payload = {"text": str(final_output)}
 
-            try:
-                await send_status(
-                    websocket, "agent_stream_end", {"final": final_payload}
-                )
-            except Exception as e:
-                print(f"[WEBSOCKET] Failed to send stream end: {e}")
-
-            print(f"\n[WEBSOCKET] Main agent output: {final_output}")
+            print(f"\n[WEBSOCKET] Stream finished. Final payload: {final_payload}")
+            print(f"[WEBSOCKET] Total run duration: {run_duration:.3f}s")
 
             if isinstance(final_output, dict):
                 result_data = final_output
