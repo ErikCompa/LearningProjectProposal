@@ -6,7 +6,6 @@ from pydantic import ValidationError
 from app.models import (
     AgentSession,
     ConversationAgentResult,
-    EmotionAgentResult,
     MusicAgentResult,
     QAEmotionPair,
 )
@@ -261,32 +260,32 @@ class TestAgentSession:
             AgentSession()
 
 
-class TestMoodAnalysisResult:
-    """Test MoodAnalysisResult model"""
+class TestConversationAgentResult:
+    """Test ConversationAgentResult model (contains emotion fields)"""
 
-    def test_valid_mood_analysis(self):
-        """Test valid MoodAnalysisResult creation"""
-        result = EmotionAgentResult(
+    def test_valid_emotion_fields(self):
+        """Test valid ConversationAgentResult creation with emotion fields"""
+        result = ConversationAgentResult(
+            question="How are you?",
+            is_direct=True,
             emotion="happy",
             confidence=0.85,
             negative_emotion_percentages=None,
-            music_requested=False,
         )
         assert result.emotion == "happy"
         assert result.confidence == 0.85
         assert result.negative_emotion_percentages is None
-        assert result.music_requested is False
 
     def test_with_negative_emotions(self):
         """Test with negative emotion percentages"""
-        result = EmotionAgentResult(
+        result = ConversationAgentResult(
+            question="How are you?",
+            is_direct=False,
             emotion="sad",
             confidence=0.9,
             negative_emotion_percentages={"sadness": 0.7, "anxiety": 0.3},
-            music_requested=True,
         )
         assert result.negative_emotion_percentages == {"sadness": 0.7, "anxiety": 0.3}
-        assert result.music_requested is True
 
 
 class TestNextQuestionResult:
@@ -295,7 +294,11 @@ class TestNextQuestionResult:
     def test_valid_next_question(self):
         """Test valid NextQuestionResult creation"""
         result = ConversationAgentResult(
-            question="How are you feeling today?", is_direct=True
+            question="How are you feeling today?",
+            is_direct=True,
+            emotion="neutral",
+            confidence=0.5,
+            negative_emotion_percentages=None,
         )
         assert result.question == "How are you feeling today?"
         assert result.is_direct is True
@@ -303,7 +306,11 @@ class TestNextQuestionResult:
     def test_indirect_question(self):
         """Test indirect question"""
         result = ConversationAgentResult(
-            question="Tell me about your day", is_direct=False
+            question="Tell me about your day",
+            is_direct=False,
+            emotion="neutral",
+            confidence=0.5,
+            negative_emotion_percentages=None,
         )
         assert result.is_direct is False
 
