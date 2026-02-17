@@ -2,26 +2,24 @@ import asyncio
 import json
 import os
 import threading
+import time
 import uuid
 from datetime import datetime
 
+from agents import Runner
 from fastapi import (
     APIRouter,
     WebSocket,
     WebSocketDisconnect,
 )
+from openai.types.responses import ResponseTextDeltaEvent
 
+from app import main_agent
 from app.elevenlabs import (
     stt_elevenlabs_session,
     tts_elevenlabs_session,
 )
-from app.models import QAMoodPair
-from app.openai_agent import (
-    openai_analyze_conversation_mood,
-    openai_create_conversation,
-    openai_get_conversation_next_question,
-    openai_suggest_music,
-)
+from app.models import QAEmotionPair
 from app.services import (
     upload_session_in_background,
 )
@@ -29,7 +27,35 @@ from app.services import (
 router = APIRouter(tags=["agent"])
 
 
-# receive audio data from frontend
+# helper to send status updates to frontend
+async def send_status(websocket: WebSocket, status_type: str, data: dict = None):
+    payload = {"type": status_type}
+    if data:
+        payload.update(data)
+    await websocket.send_json(payload)
+
+
+# helper to empty audio q and not use old audio data in next STT session
+def clear_audio_queue(audio_queue: asyncio.Queue):
+    while not audio_queue.empty():
+        try:
+            audio_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+
+
+# helper to wait for frontend signal
+async def wait_for_playback_finished(res_queue: asyncio.Queue, timeout: float = 30.0):
+    try:
+        while True:
+            response = await asyncio.wait_for(res_queue.get(), timeout=timeout)
+            if response.get("type") == "audio_playback_finished":
+                break
+    except asyncio.TimeoutError:
+        print("[WEBSOCKET] Timeout waiting for audio playback finished signal")
+
+
+# receives constant stream of audio from frontend
 async def receive_audio(
     websocket: WebSocket,
     audio_queue: asyncio.Queue,
@@ -67,12 +93,13 @@ async def receive_audio(
         print(f"[WEBSOCKET-RECEIVE_AUDIO] Error in receive_audio: {e}")
 
 
+# listens for user response using elevenlabs STT
 async def listen_for_answer(
     audio_queue: asyncio.Queue, res_queue: asyncio.Queue, websocket: WebSocket
 ):
-    # listen for answer
     print("[WEBSOCKET] Now listening for user response...")
-    await websocket.send_json({"type": "listening"})
+    # update frontend
+    await send_status(websocket, "listening")
 
     answer_transcript_container = {"current": ""}
     answer_ready = asyncio.Event()
@@ -94,6 +121,36 @@ async def listen_for_answer(
     return answer_transcript
 
 
+# main function to ask and listen
+async def ask_question_and_get_response(
+    question: str,
+    websocket: WebSocket,
+    audio_queue: asyncio.Queue,
+    res_queue: asyncio.Queue,
+):
+    await tts_elevenlabs_session(question, websocket)
+    # update frontend
+    await send_status(websocket, "question", {"text": question})
+
+    await wait_for_playback_finished(res_queue)
+
+    clear_audio_queue(audio_queue)
+
+    answer_transcript = await listen_for_answer(audio_queue, res_queue, websocket)
+
+    if not answer_transcript.strip():
+        retry_message = "Sorry, I didn't catch that. If you'd like me to play some music just say 'Play me some music'"
+        await tts_elevenlabs_session(retry_message, websocket)
+        await send_status(websocket, "empty_transcript", {"message": retry_message})
+
+        await wait_for_playback_finished(res_queue)
+        clear_audio_queue(audio_queue)
+
+        answer_transcript = await listen_for_answer(audio_queue, res_queue, websocket)
+
+    return answer_transcript
+
+
 @router.websocket(os.getenv("AGENT_URL"))
 async def websocket_agent(websocket: WebSocket):
     print("[WEBSOCKET] Client connected")
@@ -103,203 +160,278 @@ async def websocket_agent(websocket: WebSocket):
     session_timestamp = datetime.now().isoformat()
     audio_queue = asyncio.Queue()
     res_queue = asyncio.Queue()
-    audioBytes = bytearray()
-
-    conversation_id = await openai_create_conversation(session_id)
+    audio_bytes = bytearray()
+    qa_pairs: list[QAEmotionPair] = []
+    receive_task = None
 
     try:
-        mood = "neutral"
-        mood_confidence = 0.0
-        direct_question_counter = 0
-        total_question_counter = 0
-        initial_question = True
-        reminder_asked = False
-        # [question, answer]
-        qa_pairs: list[tuple[str, str]] = []
-        # [mood, confidence]
-        moods: list[tuple[str, float]] = []
-        # QAPair objects for upload
-        qa_pairs_with_moods: list[QAMoodPair] = []
+        current_question = None
+        current_is_direct = False
+        high_confidence_reached = False
+        music_reminder_given = False
+        direct_question_count = 0
 
         receive_task = asyncio.create_task(
-            receive_audio(websocket, audio_queue, audioBytes, res_queue)
+            receive_audio(websocket, audio_queue, audio_bytes, res_queue)
+        )
+
+        initial_message = 'Hello! How are you feeling today? If you say "Play me some music", I can play you a song.'
+        current_question = initial_message
+        user_input = await ask_question_and_get_response(
+            initial_message, websocket, audio_queue, res_queue
         )
 
         while True:
-            # get question from agent
-            if initial_question:
-                question = 'Hello! How are you feeling today? If you say "Play me some music", I can play you a song.'
-                print(f"[WEBSOCKET] Initial question: {question}")
-                initial_question = False
-            else:
-                try:
-                    question = await openai_get_conversation_next_question(
-                        direct_question_counter,
-                        moods,
-                        mood_confidence,
-                        conversation_id,
-                    )
-                    print(f"[WEBSOCKET] Generated next question: {question}")
-                except Exception as e:
-                    print(f"[WEBSOCKET] Error generating next question: {e}")
-                    raise
-                if question.is_direct:
-                    direct_question_counter += 1
-                question = question.question
+            # empty response
+            if not user_input.strip():
+                print(
+                    "[WEBSOCKET] Two consecutive empty responses - ending with music recommendation"
+                )
+                if qa_pairs:
+                    last_qa = qa_pairs[-1]
+                    final_emotion = last_qa.emotion
+                    final_confidence = last_qa.confidence
+                else:
+                    final_emotion = "Calm"
+                    final_confidence = 0.5
 
-            # check for reminder suggestion
-            music_reminder = f'It sounds like you\'re feeling {mood}, I can play you some music anytime that I think would suit your mood. Just say "Play me some music".'
-            if mood_confidence > 0.8 and not reminder_asked and len(qa_pairs) > 4:
-                question += f" {music_reminder}"
-                reminder_asked = True
+                await send_status(
+                    websocket,
+                    "result",
+                    {"mood": final_emotion, "confidence": final_confidence},
+                )
 
-            total_question_counter += 1
-            # ask question
-            await tts_elevenlabs_session(question, websocket)
-            await websocket.send_json({"type": "question", "text": question})
+                # force music rec
+                user_input = "play me some music"
 
-            # wait for audio playback finished signal
-            try:
-                while True:
-                    response = await asyncio.wait_for(res_queue.get(), timeout=30.0)
-                    if response.get("type") == "audio_playback_finished":
-                        print(
-                            "[WEBSOCKET] Frontend audio playback finished, proceeding to listening"
-                        )
-                        break
-            except asyncio.TimeoutError:
-                print("[WEBSOCKET] Timeout waiting for audio playback finished signal")
+            await send_status(websocket, "analyzing")
 
-            # clear old audio from queue
-            while not audio_queue.empty():
-                try:
-                    audio_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-
-            # listen for answer
-            answer_transcript = await listen_for_answer(
-                audio_queue, res_queue, websocket
-            )
-
-            # if empty try again
-            if not answer_transcript.strip():
-                print("[WEBSOCKET] Empty transcript received, asking user to repeat")
-
-                # Send TTS audio for the retry message
-                retry_message = "Sorry, I didn't catch that. If you'd like me to play some music just say 'Play me some music'"
-                await tts_elevenlabs_session(retry_message, websocket)
-                await websocket.send_json(
+            # build existing context
+            qa_pairs_json = json.dumps(
+                [
                     {
-                        "type": "empty_transcript",
-                        "message": retry_message,
+                        "question": qa.question,
+                        "answer": qa.answer,
+                        "emotion": qa.emotion,
+                        "confidence": qa.confidence,
+                        "is_direct": qa.is_direct,
                     }
+                    for qa in qa_pairs
+                ]
+            )
+
+            main_agent_prompt = f"""
+                User message: "{user_input}"
+
+                Current context:
+                - Questions asked so far: {len(qa_pairs)}
+                - Direct questions used: {direct_question_count}/5
+                - High confidence reached: {high_confidence_reached}
+                - Music reminder already given: {music_reminder_given}
+
+                Previous Q&A pairs:
+                {qa_pairs_json}
+
+                Process this user input according to your workflow.
+            """
+
+            print("[WEBSOCKET] Run starting")
+
+            # timing: per-run measurements
+            run_start = time.perf_counter()
+            first_agent_update_time = None
+            current_agent = None
+            agent_update_time: dict[str, float] = {}
+            agent_first_raw_seen: dict[str, bool] = {}
+
+            agent_result = Runner.run_streamed(main_agent, main_agent_prompt)
+
+            async for event in agent_result.stream_events():
+                # update frontend with stream results
+                if event.type == "raw_response_event" and isinstance(
+                    event.data, ResponseTextDeltaEvent
+                ):
+                    delta = event.data.delta
+                    print(delta, end="", flush=True)
+                    # record time from last agent update to first raw response for that agent
+                    if current_agent and not agent_first_raw_seen.get(
+                        current_agent, False
+                    ):
+                        t_first_raw = time.perf_counter()
+                        delay = t_first_raw - agent_update_time.get(
+                            current_agent, run_start
+                        )
+                        print(
+                            f"\n[WEBSOCKET] Time from agent '{current_agent}' update to first raw response: {delay:.3f}s"
+                        )
+                        agent_first_raw_seen[current_agent] = True
+
+                    try:
+                        await send_status(
+                            websocket, "agent_stream_delta", {"delta": delta}
+                        )
+                    except Exception as e:
+                        print(f"[WEBSOCKET] Failed to send stream delta: {e}")
+
+                # agent handoff
+                elif event.type == "agent_updated_stream_event":
+                    new_agent = getattr(event, "new_agent", None) or getattr(
+                        event, "data", None
+                    )
+                    agent_name = getattr(new_agent, "name", str(new_agent))
+                    t_now = time.perf_counter()
+
+                    # time from run start to first agent switch
+                    if first_agent_update_time is None:
+                        first_agent_update_time = t_now
+                        time_to_first_switch = first_agent_update_time - run_start
+                        print(f"[WEBSOCKET] Agent updated: {agent_name}")
+                        print(
+                            f"[WEBSOCKET] Time from run start to first agent switch: {time_to_first_switch:.3f}s"
+                        )
+                    else:
+                        # time from previous agent update to this agent update (handoff)
+                        if current_agent and current_agent in agent_update_time:
+                            handoff_delay = t_now - agent_update_time[current_agent]
+                            print(f"[WEBSOCKET] Agent updated: {agent_name}")
+                            print(
+                                f"[WEBSOCKET] Time from agent '{current_agent}' -> '{agent_name}': {handoff_delay:.3f}s"
+                            )
+                        else:
+                            print(f"[WEBSOCKET] Agent updated: {agent_name}")
+
+                    # record this agent's update time and reset its first-raw flag
+                    agent_update_time[agent_name] = t_now
+                    agent_first_raw_seen[agent_name] = False
+                    current_agent = agent_name
+                else:
+                    continue
+
+            # streaming finished
+            run_end = time.perf_counter()
+            run_duration = run_end - run_start
+
+            final_output = agent_result.final_output
+            if isinstance(final_output, dict):
+                final_payload = final_output
+            elif hasattr(final_output, "model_dump"):
+                final_payload = final_output.model_dump()
+            else:
+                final_payload = {"text": str(final_output)}
+
+            print(f"\n[WEBSOCKET] Stream finished. Final payload: {final_payload}")
+            print(f"[WEBSOCKET] Total run duration: {run_duration:.3f}s")
+
+            if isinstance(final_output, dict):
+                result_data = final_output
+            elif hasattr(final_output, "model_dump"):
+                result_data = final_output.model_dump()
+            else:
+                print(f"[WEBSOCKET] Unexpected output format: {type(final_output)}")
+                break
+
+            # handle question response
+            if result_data.get("question") is not None:
+                next_question = result_data["question"]
+                emotion = result_data.get("emotion")
+                confidence = result_data.get("confidence")
+
+                qa_pairs.append(
+                    QAEmotionPair(
+                        question=current_question,
+                        answer=user_input,
+                        emotion=emotion,
+                        confidence=confidence,
+                        negative_emotion_percentages=result_data.get(
+                            "negative_emotion_percentages"
+                        ),
+                        is_direct=current_is_direct,
+                    )
                 )
 
-                # Wait for audio playback finished signal
-                try:
-                    while True:
-                        response = await asyncio.wait_for(res_queue.get(), timeout=30.0)
-                        if response.get("type") == "audio_playback_finished":
-                            print(
-                                "[WEBSOCKET] Empty transcript audio playback finished"
-                            )
-                            break
-                except asyncio.TimeoutError:
+                if result_data.get("is_direct", False):
+                    direct_question_count += 1
+
+                if confidence >= 0.8 and not high_confidence_reached:
+                    high_confidence_reached = True
                     print(
-                        "[WEBSOCKET] Timeout waiting for empty transcript audio playback"
+                        "[WEBSOCKET] High confidence (>= 0.8) reached for the first time."
                     )
 
-                # Clear old audio from queue
-                while not audio_queue.empty():
-                    try:
-                        audio_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
+                if "Play me some music" in next_question and not music_reminder_given:
+                    music_reminder_given = True
+                    print("[WEBSOCKET] Music reminder has been given to the user.")
 
-                answer_transcript = await listen_for_answer(
-                    audio_queue, res_queue, websocket
+                current_question = next_question
+                current_is_direct = result_data.get("is_direct", False)
+
+                # send emotion results to frontend
+                await send_status(
+                    websocket,
+                    "intermediate_result",
+                    {
+                        "mood": emotion,
+                        "confidence": confidence,
+                        "negative_emotion_percentages": result_data.get(
+                            "negative_emotion_percentages"
+                        ),
+                    },
                 )
-                if not answer_transcript.strip():
-                    break  # if still empty, end session
 
-            # if "play me some music"
-            if "play me some music" in answer_transcript.lower():
-                print("[WEBSOCKET] User requested music, breaking out of question loop")
+                # ask next question
+                user_input = await ask_question_and_get_response(
+                    next_question, websocket, audio_queue, res_queue
+                )
+
+            # handle music response
+            elif result_data.get("song") is not None:
+                music_song = result_data.get("song")
+                emotion = result_data.get(
+                    "emotion", qa_pairs[-1].emotion if qa_pairs else "Calm"
+                )
+                confidence = result_data.get(
+                    "confidence", qa_pairs[-1].confidence if qa_pairs else 0.5
+                )
+
+                # final pair
+                qa_pairs.append(
+                    QAEmotionPair(
+                        question=current_question,
+                        answer=user_input,
+                        emotion=emotion,
+                        confidence=confidence,
+                        negative_emotion_percentages=result_data.get(
+                            "negative_emotion_percentages"
+                        ),
+                        is_direct=current_is_direct,
+                    )
+                )
+
+                await send_status(
+                    websocket, "result", {"mood": emotion, "confidence": confidence}
+                )
+                await send_status(
+                    websocket, "music_recommendation", {"music": music_song}
+                )
+                print(f"[WEBSOCKET] Music recommendation: {music_song}")
                 break
 
-            # analyze response
-            await websocket.send_json({"type": "analyzing"})
-            (
-                mood,
-                mood_confidence,
-                negative_emotion_percentages,
-                music_requested,
-            ) = await openai_analyze_conversation_mood(
-                question,
-                answer_transcript,
-                conversation_id,
-            )
-
-            # log mood analysis results
-            print(f"[WEBSOCKET] Mood: {mood}, Confidence: {mood_confidence}")
-            if negative_emotion_percentages:
-                print(
-                    f"[WEBSOCKET] Negative emotion percentages: {negative_emotion_percentages}"
-                )
-
-            if music_requested:
-                print("[WEBSOCKET] User requested music in mood analysis response")
-                break
-
-            # go to next question
-            qa_pairs.append((question, answer_transcript))
-            moods.append((mood, mood_confidence))
-            qa_pairs_with_moods.append(
-                QAMoodPair(
-                    question=question,
-                    answer=answer_transcript,
-                    mood=mood,
-                    confidence=mood_confidence,
-                    negative_emotion_percentages=negative_emotion_percentages,
-                )
-            )
-
-        # Send result only if we actually analyzed the mood
-        if qa_pairs_with_moods:
-            if mood_confidence >= 0.8:
-                print(
-                    f"[WEBSOCKET] High confidence reached: {mood}, confidence: {mood_confidence}"
-                )
-                await websocket.send_json(
-                    {"type": "result", "mood": mood, "confidence": mood_confidence}
-                )
+            # main agent returned something unexpected
             else:
-                print(
-                    f"[WEBSOCKET] Max direct questions reached. Best mood: {mood}, confidence: {mood_confidence}"
-                )
-                await websocket.send_json(
-                    {"type": "result", "mood": mood, "confidence": mood_confidence}
-                )
-
-        # recommend music based on mood
-        user_preferences = ["metal", "rock"]
-        music = await openai_suggest_music(user_preferences, conversation_id)
-        print(f"[WEBSOCKET] Music recommendation based on mood ({mood}): {music}")
-        await websocket.send_json({"type": "music_recommendation", "music": music.song})
+                print(f"[WEBSOCKET] Unknown result format: {result_data}")
+                break
 
     except WebSocketDisconnect as e:
-        print(f"[WEBSOCKET] Websocket disconnected: {e}")
+        print(f"[WEBSOCKET] WebSocket disconnected: {e}")
     except Exception as e:
-        print(f"[WEBSOCKET] error during websocket communication: {e}")
+        print(f"[WEBSOCKET] Error during websocket communication: {e}")
         try:
-            await websocket.send_json({"type": "error", "message": str(e)})
+            await send_status(websocket, "error", {"message": str(e)})
         except Exception:
             pass
     finally:
-        # cleanup
         print("[WEBSOCKET] Cleaning up websocket session")
-        if "receive_task" in locals():
+        if receive_task:
             receive_task.cancel()
             try:
                 await receive_task
@@ -308,25 +440,25 @@ async def websocket_agent(websocket: WebSocket):
             except Exception as e:
                 print(f"[WEBSOCKET] Error during receive_task cleanup: {e}")
 
-        # upload session data in background
-        if "qa_pairs_with_moods" in locals():
+        # upload session data in background thread
+        if qa_pairs:
+            print(f"[WEBSOCKET] Uploading {len(qa_pairs)} QA pairs")
+            last_qa = qa_pairs[-1]
             upload_thread = threading.Thread(
                 target=upload_session_in_background,
                 args=(
-                    audioBytes,
+                    audio_bytes,
                     session_id,
                     session_timestamp,
-                    qa_pairs_with_moods,
-                    mood if "mood" in locals() else "unknown",
-                    mood_confidence if "mood_confidence" in locals() else 0.0,
-                    total_question_counter
-                    if "total_question_counter" in locals()
-                    else 0,
-                    direct_question_counter
-                    if "direct_question_counter" in locals()
-                    else 0,
+                    qa_pairs,
+                    last_qa.emotion,
+                    last_qa.confidence,
+                    len(qa_pairs),
+                    sum(1 for qa in qa_pairs if qa.is_direct),
                 ),
                 daemon=True,
             )
             upload_thread.start()
             print(f"[WEBSOCKET] Started background upload for session: {session_id}")
+        else:
+            print("[WEBSOCKET] No QA pairs to upload")

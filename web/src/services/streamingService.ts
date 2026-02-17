@@ -7,13 +7,33 @@ export default class StreamingService {
   private onQuestion?: (question: string) => void;
   private onListening?: () => void;
   private onAnalyzing?: () => void;
-  private onResult?: (mood: string, confidence: number) => void;
+  private onResult?: () => void;
   private onNoResult?: (message: string) => void;
   private onEmptyTranscript?: (message: string) => void;
+  private onIntermediateResult?: (
+    mood: string,
+    confidence: number,
+    negativeEmotionPercentages: Record<string, number> | null,
+  ) => void;
+  public setOnIntermediateResult(
+    callback: (
+      mood: string,
+      confidence: number,
+      negativeEmotionPercentages: Record<string, number> | null,
+    ) => void,
+  ): void {
+    this.onIntermediateResult = callback;
+  }
   private onError?: (message: string) => void;
   private onWebSocketClosed?: () => void;
   private onMusicRecommendation?: (music: string) => void;
   private helper: any = null;
+  private onAgentStream?: (payload: any, isFinal: boolean) => void;
+  public setOnAgentStream(
+    callback: (payload: any, isFinal: boolean) => void,
+  ): void {
+    this.onAgentStream = callback;
+  }
 
   constructor(
     onTranscriptUpdate?: (transcript: string, isFinal: boolean) => void,
@@ -21,12 +41,17 @@ export default class StreamingService {
     onQuestion?: (question: string) => void,
     onListening?: () => void,
     onAnalyzing?: () => void,
-    onResult?: (mood: string, confidence: number) => void,
+    onResult?: () => void,
     onNoResult?: (message: string) => void,
     onEmptyTranscript?: (message: string) => void,
     onError?: (message: string) => void,
     onWebSocketClosed?: () => void,
     onMusicRecommendation?: (music: string) => void,
+    onIntermediateResult?: (
+      mood: string,
+      confidence: number,
+      negativeEmotionPercentages: Record<string, number> | null,
+    ) => void,
   ) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onQuestionAudio = onQuestionAudio;
@@ -39,6 +64,7 @@ export default class StreamingService {
     this.onError = onError;
     this.onWebSocketClosed = onWebSocketClosed;
     this.onMusicRecommendation = onMusicRecommendation;
+    this.onIntermediateResult = onIntermediateResult;
   }
 
   public setHelper(helper: any): void {
@@ -60,6 +86,21 @@ export default class StreamingService {
         const data = JSON.parse(event.data);
 
         switch (data.type) {
+          case "agent_stream_delta":
+            if (this.onAgentStream) this.onAgentStream(data.delta, false);
+            break;
+          case "agent_stream_end":
+            if (this.onAgentStream) this.onAgentStream(data.final, true);
+            break;
+          case "intermediate_result":
+            if (this.onIntermediateResult) {
+              this.onIntermediateResult(
+                data.mood,
+                data.confidence,
+                data.negative_emotion_percentages,
+              );
+            }
+            break;
           case "transcript":
             if (this.onTranscriptUpdate) {
               this.onTranscriptUpdate(data.transcript, data.is_final);
@@ -87,7 +128,7 @@ export default class StreamingService {
             break;
           case "result":
             if (this.onResult) {
-              this.onResult(data.mood, data.confidence);
+              this.onResult();
             }
             break;
           case "no_result":

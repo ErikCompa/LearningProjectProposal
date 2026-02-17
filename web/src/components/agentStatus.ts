@@ -33,7 +33,7 @@ export default class AgentStatus {
   public showAnalyzing(): void {
     this.statusElement.innerHTML = `
       <div class="agent-analyzing">
-        <div class="analyzing-text">Analyzing your response...</div>
+        <div class="analyzing-text">Agent is analyzing your response...</div>
         <div class="analyzing-dots">
           <span>.</span><span>.</span><span>.</span>
         </div>
@@ -42,16 +42,8 @@ export default class AgentStatus {
     this.statusElement.style.display = "block";
   }
 
-  public showResult(mood: string, confidence: number): void {
-    const confidencePercent = (confidence * 100).toFixed(0);
-    this.statusElement.innerHTML = `
-      <div class="agent-result">
-        <div class="result-label">Your mood:</div>
-        <div class="result-mood">${mood}</div>
-        <div class="result-confidence">Confidence: ${confidencePercent}%</div>
-      </div>
-    `;
-    this.statusElement.style.display = "block";
+  public showResult(): void {
+    this.clear();
   }
 
   public showNoResult(message: string): void {

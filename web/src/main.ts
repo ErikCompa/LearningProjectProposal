@@ -6,14 +6,16 @@ import AudioRecorder from "./audio/audioRecorder.ts";
 import StreamingService from "./services/streamingService";
 import { StreamingServiceHelper } from "./services/streamingServiceHelper";
 import MusicRecommendation from "./components/musicRecommendation";
+import EmotionGraph from "./components/emotionGraph";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <div>
-    <h1>Mood Detection Agent</h1>
+    <h1>MyWayv Agent</h1>
     <div id="record-button-container"></div>
     <div id="agent-status-container"></div>
     <div id="realtime-transcript-container"></div>
+    <div id="emotion-graph-container"></div>
     <div id="music-recommendation-container"></div>
   </div>
 `;
@@ -26,6 +28,10 @@ const agentStatusContainer = document.querySelector<HTMLDivElement>(
   "#agent-status-container",
 )!;
 
+const emotionGraphContainer = document.querySelector<HTMLDivElement>(
+  "#emotion-graph-container",
+)!;
+
 const realtimeTranscriptContainer = document.querySelector<HTMLDivElement>(
   "#realtime-transcript-container",
 )!;
@@ -35,6 +41,7 @@ const musicRecommendationContainer = document.querySelector<HTMLDivElement>(
 )!;
 
 const agentStatus = new AgentStatus(agentStatusContainer);
+const emotionGraph = new EmotionGraph(emotionGraphContainer);
 const realtimeTranscript = new RealtimeTranscript(realtimeTranscriptContainer);
 const musicRecommendation = new MusicRecommendation(
   musicRecommendationContainer,
@@ -42,6 +49,7 @@ const musicRecommendation = new MusicRecommendation(
 
 const helper = new StreamingServiceHelper(
   agentStatus,
+  emotionGraph,
   realtimeTranscript,
   null as any,
   null as any,
@@ -60,9 +68,12 @@ const streamingService = new StreamingService(
   helper.onError,
   helper.onWebSocketClosed,
   helper.onMusicRecommendation,
+  helper.onIntermediateResult,
 );
 
 streamingService.setHelper(helper);
+
+streamingService.setOnAgentStream(helper.onAgentStream.bind(helper));
 
 const audioRecorder = new AudioRecorder(streamingService);
 audioRecorder.setOnRecordingStart(() => {

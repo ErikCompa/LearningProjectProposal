@@ -5,10 +5,9 @@ from pydantic import ValidationError
 
 from app.models import (
     AgentSession,
-    MoodAnalysisResult,
-    MusicRecommendationResult,
-    NextQuestionResult,
-    QAMoodPair,
+    ConversationAgentResult,
+    MusicAgentResult,
+    QAEmotionPair,
 )
 
 
@@ -17,48 +16,54 @@ class TestQAPair:
 
     def test_valid_qapair(self):
         """Test valid QAPair creation"""
-        qa = QAMoodPair(
+        qa = QAEmotionPair(
             question="How are you feeling?",
             answer="I feel happy",
-            mood="joyful",
+            emotion="joyful",
             confidence=0.85,
         )
         assert qa.question == "How are you feeling?"
         assert qa.answer == "I feel happy"
-        assert qa.mood == "joyful"
+        assert qa.emotion == "joyful"
         assert qa.confidence == 0.85
 
     def test_confidence_boundaries(self):
         """Test confidence must be 0-1"""
         # Valid boundaries
-        qa_min = QAMoodPair(question="Q", answer="A", mood="happy", confidence=0.0)
+        qa_min = QAEmotionPair(
+            question="Q", answer="A", emotion="happy", confidence=0.0
+        )
         assert qa_min.confidence == 0.0
 
-        qa_max = QAMoodPair(question="Q", answer="A", mood="happy", confidence=1.0)
+        qa_max = QAEmotionPair(
+            question="Q", answer="A", emotion="happy", confidence=1.0
+        )
         assert qa_max.confidence == 1.0
 
         # Invalid - too low
         with pytest.raises(ValidationError):
-            QAMoodPair(question="Q", answer="A", mood="happy", confidence=-0.1)
+            QAEmotionPair(question="Q", answer="A", emotion="happy", confidence=-0.1)
 
         # Invalid - too high
         with pytest.raises(ValidationError):
-            QAMoodPair(question="Q", answer="A", mood="happy", confidence=1.1)
+            QAEmotionPair(question="Q", answer="A", emotion="happy", confidence=1.1)
 
     def test_required_fields(self):
         """Test all fields are required"""
         with pytest.raises(ValidationError):
-            QAMoodPair()
+            QAEmotionPair()
 
     def test_optional_negative_emotions(self):
         """Test optional negative_emotion_percentages field"""
-        qa_without = QAMoodPair(question="Q", answer="A", mood="happy", confidence=0.5)
+        qa_without = QAEmotionPair(
+            question="Q", answer="A", emotion="happy", confidence=0.5
+        )
         assert qa_without.negative_emotion_percentages is None
 
-        qa_with = QAMoodPair(
+        qa_with = QAEmotionPair(
             question="Q",
             answer="A",
-            mood="sad",
+            emotion="sad",
             confidence=0.8,
             negative_emotion_percentages={"sadness": 0.6, "anxiety": 0.2},
         )
@@ -71,17 +76,17 @@ class TestAgentSession:
     def test_valid_agent_session(self):
         """Test valid AgentSession creation"""
         now = datetime.now()
-        qa_pair = QAMoodPair(
+        qa_pair = QAEmotionPair(
             question="How are you?",
             answer="Good",
-            mood="content",
+            emotion="content",
             confidence=0.9,
         )
         session = AgentSession(
             session_id="test-123",
             created_at=now,
             qa_pairs=[qa_pair],
-            final_mood="content",
+            final_emotion="content",
             final_confidence=0.9,
             total_question_count=1,
             direct_question_count=1,
@@ -90,8 +95,8 @@ class TestAgentSession:
         assert session.session_id == "test-123"
         assert session.created_at == now
         assert len(session.qa_pairs) == 1
-        assert session.qa_pairs[0].mood == "content"
-        assert session.final_mood == "content"
+        assert session.qa_pairs[0].emotion == "content"
+        assert session.final_emotion == "content"
         assert session.final_confidence == 0.9
         assert session.total_question_count == 1
         assert session.direct_question_count == 1
@@ -100,10 +105,10 @@ class TestAgentSession:
     def test_final_confidence_boundaries(self):
         """Test final_confidence must be 0-1"""
         now = datetime.now()
-        qa_pair = QAMoodPair(
+        qa_pair = QAEmotionPair(
             question="Q",
             answer="A",
-            mood="happy",
+            emotion="happy",
             confidence=0.5,
         )
 
@@ -112,7 +117,7 @@ class TestAgentSession:
             session_id="test",
             created_at=now,
             qa_pairs=[qa_pair],
-            final_mood="happy",
+            final_emotion="happy",
             final_confidence=0.0,
             total_question_count=1,
             direct_question_count=0,
@@ -124,7 +129,7 @@ class TestAgentSession:
             session_id="test",
             created_at=now,
             qa_pairs=[qa_pair],
-            final_mood="happy",
+            final_emotion="happy",
             final_confidence=1.0,
             total_question_count=1,
             direct_question_count=0,
@@ -138,7 +143,7 @@ class TestAgentSession:
                 session_id="test",
                 created_at=now,
                 qa_pairs=[qa_pair],
-                final_mood="happy",
+                final_emotion="happy",
                 final_confidence=1.5,
                 total_question_count=1,
                 direct_question_count=0,
@@ -148,14 +153,16 @@ class TestAgentSession:
     def test_question_count_boundaries(self):
         """Test total_question_count must be >= 1 and direct_question_count must be 0-5"""
         now = datetime.now()
-        qa_pair = QAMoodPair(question="Q", answer="A", mood="happy", confidence=0.5)
+        qa_pair = QAEmotionPair(
+            question="Q", answer="A", emotion="happy", confidence=0.5
+        )
 
         # Valid boundaries
         session_min = AgentSession(
             session_id="test",
             created_at=now,
             qa_pairs=[qa_pair],
-            final_mood="happy",
+            final_emotion="happy",
             final_confidence=0.5,
             total_question_count=1,
             direct_question_count=0,
@@ -168,7 +175,7 @@ class TestAgentSession:
             session_id="test",
             created_at=now,
             qa_pairs=[qa_pair],
-            final_mood="happy",
+            final_emotion="happy",
             final_confidence=0.5,
             total_question_count=10,
             direct_question_count=5,
@@ -183,7 +190,7 @@ class TestAgentSession:
                 session_id="test",
                 created_at=now,
                 qa_pairs=[qa_pair],
-                final_mood="happy",
+                final_emotion="happy",
                 final_confidence=0.5,
                 total_question_count=0,
                 direct_question_count=0,
@@ -196,7 +203,7 @@ class TestAgentSession:
                 session_id="test",
                 created_at=now,
                 qa_pairs=[qa_pair],
-                final_mood="happy",
+                final_emotion="happy",
                 final_confidence=0.5,
                 total_question_count=10,
                 direct_question_count=6,
@@ -207,15 +214,17 @@ class TestAgentSession:
         """Test session with multiple Q&A pairs"""
         now = datetime.now()
         qa_pairs = [
-            QAMoodPair(question="Q1", answer="A1", mood="happy", confidence=0.5),
-            QAMoodPair(question="Q2", answer="A2", mood="content", confidence=0.7),
-            QAMoodPair(question="Q3", answer="A3", mood="joyful", confidence=0.9),
+            QAEmotionPair(question="Q1", answer="A1", emotion="happy", confidence=0.5),
+            QAEmotionPair(
+                question="Q2", answer="A2", emotion="content", confidence=0.7
+            ),
+            QAEmotionPair(question="Q3", answer="A3", emotion="joyful", confidence=0.9),
         ]
         session = AgentSession(
             session_id="test",
             created_at=now,
             qa_pairs=qa_pairs,
-            final_mood="joyful",
+            final_emotion="joyful",
             final_confidence=0.9,
             total_question_count=3,
             direct_question_count=2,
@@ -223,17 +232,19 @@ class TestAgentSession:
         )
         assert len(session.qa_pairs) == 3
         assert session.qa_pairs[0].question == "Q1"
-        assert session.qa_pairs[1].mood == "content"
+        assert session.qa_pairs[1].emotion == "content"
 
     def test_json_serialization(self):
         """Test datetime JSON serialization"""
         now = datetime.now()
-        qa_pair = QAMoodPair(question="Q", answer="A", mood="happy", confidence=0.5)
+        qa_pair = QAEmotionPair(
+            question="Q", answer="A", emotion="happy", confidence=0.5
+        )
         session = AgentSession(
             session_id="test",
             created_at=now,
             qa_pairs=[qa_pair],
-            final_mood="happy",
+            final_emotion="happy",
             final_confidence=0.5,
             total_question_count=1,
             direct_question_count=0,
@@ -249,32 +260,32 @@ class TestAgentSession:
             AgentSession()
 
 
-class TestMoodAnalysisResult:
-    """Test MoodAnalysisResult model"""
+class TestConversationAgentResult:
+    """Test ConversationAgentResult model (contains emotion fields)"""
 
-    def test_valid_mood_analysis(self):
-        """Test valid MoodAnalysisResult creation"""
-        result = MoodAnalysisResult(
-            mood="happy",
+    def test_valid_emotion_fields(self):
+        """Test valid ConversationAgentResult creation with emotion fields"""
+        result = ConversationAgentResult(
+            question="How are you?",
+            is_direct=True,
+            emotion="happy",
             confidence=0.85,
             negative_emotion_percentages=None,
-            music_requested=False,
         )
-        assert result.mood == "happy"
+        assert result.emotion == "happy"
         assert result.confidence == 0.85
         assert result.negative_emotion_percentages is None
-        assert result.music_requested is False
 
     def test_with_negative_emotions(self):
         """Test with negative emotion percentages"""
-        result = MoodAnalysisResult(
-            mood="sad",
+        result = ConversationAgentResult(
+            question="How are you?",
+            is_direct=False,
+            emotion="sad",
             confidence=0.9,
             negative_emotion_percentages={"sadness": 0.7, "anxiety": 0.3},
-            music_requested=True,
         )
         assert result.negative_emotion_percentages == {"sadness": 0.7, "anxiety": 0.3}
-        assert result.music_requested is True
 
 
 class TestNextQuestionResult:
@@ -282,15 +293,25 @@ class TestNextQuestionResult:
 
     def test_valid_next_question(self):
         """Test valid NextQuestionResult creation"""
-        result = NextQuestionResult(
-            question="How are you feeling today?", is_direct=True
+        result = ConversationAgentResult(
+            question="How are you feeling today?",
+            is_direct=True,
+            emotion="neutral",
+            confidence=0.5,
+            negative_emotion_percentages=None,
         )
         assert result.question == "How are you feeling today?"
         assert result.is_direct is True
 
     def test_indirect_question(self):
         """Test indirect question"""
-        result = NextQuestionResult(question="Tell me about your day", is_direct=False)
+        result = ConversationAgentResult(
+            question="Tell me about your day",
+            is_direct=False,
+            emotion="neutral",
+            confidence=0.5,
+            negative_emotion_percentages=None,
+        )
         assert result.is_direct is False
 
 
@@ -299,10 +320,10 @@ class TestMusicRecommendationResult:
 
     def test_valid_recommendation(self):
         """Test valid MusicRecommendationResult creation"""
-        result = MusicRecommendationResult(song="Happy by Pharrell Williams")
+        result = MusicAgentResult(song="Happy by Pharrell Williams")
         assert result.song == "Happy by Pharrell Williams"
 
     def test_empty_song_invalid(self):
         """Test empty song name is invalid"""
         with pytest.raises(ValidationError):
-            MusicRecommendationResult(song="")
+            MusicAgentResult(song="")
